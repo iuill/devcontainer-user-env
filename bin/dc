@@ -64,7 +64,17 @@ else
     exec_args=("$@")
 fi
 
+remote_env_args=(
+    --remote-env DEVCONTAINER_CONTEXT=1
+)
+
+if [[ ${exec_args[0]} == codex ]]; then
+    remote_env_args+=(
+        --remote-env HERDR_AGENT=codex
+    )
+fi
+
 devcontainer exec \
     --workspace-folder "$workspace" \
-    --remote-env DEVCONTAINER_CONTEXT=1 \
+    "${remote_env_args[@]}" \
     "${exec_args[@]}"

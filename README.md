@@ -49,6 +49,9 @@ dc codex
 dc npm test
 ```
 
+`dc codex` で起動したCodexには、`HERDR_AGENT=codex` が環境変数として
+設定されます。
+
 `dc` は次のようにコンテナを起動します。
 
 ```bash
