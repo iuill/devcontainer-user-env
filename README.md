@@ -64,6 +64,11 @@ devcontainer up \
 
 その後、指定されたコマンドを `devcontainer exec` で実行します。
 
+コンテナ起動後は、コンテナ内の `~/dotfiles` を `git pull --ff-only` で
+自動的に同期します。dotfilesが存在しない場合は自動的にcloneし、
+`install-devcontainer.sh` を再適用してから指定されたコマンドを起動します。
+同期に失敗した場合は警告を表示し、既存環境のまま処理を続行します。
+
 dotfilesのGit URLには、このリポジトリの `origin` が自動的に使われます。
 必要であれば環境変数で上書きできます。
 

@@ -54,6 +54,64 @@ if [[ -z "$dotfiles_repository" ]]; then
     exit 2
 fi
 
+sync_dotfiles() {
+    local container_home dotfiles_path
+
+    if ! container_home="$(
+        devcontainer exec \
+            --workspace-folder "$workspace" \
+            printenv HOME 2>/dev/null
+    )"; then
+        printf 'dc: warning: could not determine the container home; skipped dotfiles sync\n' >&2
+        return
+    fi
+
+    container_home="${container_home//$'\r'/}"
+    if [[ $container_home != /* || $container_home == *$'\n'* ]]; then
+        printf 'dc: warning: invalid container home; skipped dotfiles sync\n' >&2
+        return
+    fi
+
+    dotfiles_path="${container_home}/dotfiles"
+
+    if devcontainer exec \
+        --workspace-folder "$workspace" \
+        test -d "${dotfiles_path}/.git"
+    then
+        if ! devcontainer exec \
+            --workspace-folder "$workspace" \
+            git -C "$dotfiles_path" pull --ff-only --quiet
+        then
+            printf 'dc: warning: could not update dotfiles; using the existing checkout\n' >&2
+        fi
+    else
+        if devcontainer exec \
+            --workspace-folder "$workspace" \
+            test -e "$dotfiles_path"
+        then
+            printf 'dc: warning: %s exists but is not a Git checkout; skipped dotfiles sync\n' \
+                "$dotfiles_path" >&2
+            return
+        fi
+
+        if ! devcontainer exec \
+            --workspace-folder "$workspace" \
+            git clone --quiet "$dotfiles_repository" "$dotfiles_path"
+        then
+            printf 'dc: warning: could not clone dotfiles; continuing without them\n' >&2
+            return
+        fi
+    fi
+
+    if ! devcontainer exec \
+        --workspace-folder "$workspace" \
+        --remote-env DEVCONTAINER_USER_ENV_SILENT=1 \
+        "${dotfiles_path}/install-devcontainer.sh"
+    then
+        printf 'dc: warning: could not apply the synced dotfiles\n' >&2
+    fi
+}
+
 up_args=(
     up
     --workspace-folder "$workspace"
@@ -62,6 +120,8 @@ up_args=(
 )
 
 devcontainer "${up_args[@]}" || exit $?
+
+sync_dotfiles
 
 if (($# == 0)) || [[ ${1:-} == bash ]]; then
     exec_args=(bash -il)
