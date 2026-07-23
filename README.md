@@ -36,7 +36,7 @@ cd ~/.local/share/devcontainer-user-env
 インストーラーは次の処理を行います。
 
 1. `bin/dc` を `~/.local/bin` にシンボリックリンクする
-2. Bashのプロンプトに赤い `[HOST]` バッジを表示する
+2. Bashのプロンプトに黄色い `⚠️ HOST` バッジを表示する
 
 ## 使い方
 
@@ -79,11 +79,11 @@ DC_WORKSPACE_FOLDER=/path/to/project dc bash
 
 ## プロンプトの色
 
-- ホスト：赤背景に白文字の `[HOST]` バッジ
-- Dev Container：青背景に白文字の `[DEV]` バッジ
+- ホスト：黄色背景に黒文字の `⚠️ HOST` バッジ
+- Dev Container：青背景に白文字の `🐳 DEV` バッジ
 
 DEVプロンプトは `/.dockerenv` も判定します。そのため、コンテナ内で新たに
-対話シェルを起動した場合も `[DEV]` バッジが表示されます。
+対話シェルを起動した場合も `🐳 DEV` バッジが表示されます。
 
 Starshipがインストールされている場合は、同梱の `starship.toml` を自動的に
 使います。Starshipがない場合はBashの `PS1` に直接バッジを追加します。

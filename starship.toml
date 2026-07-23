@@ -1,13 +1,13 @@
 format = '${custom.host}${custom.dev}$all'
 
 [custom.host]
-command = 'printf HOST'
+command = 'printf "⚠️ HOST"'
 when = 'test "$DEVCONTAINER_PROMPT_CONTEXT" = HOST'
 format = '[$output]($style) '
-style = 'bold white bg:red'
+style = 'bold black bg:yellow'
 
 [custom.dev]
-command = 'printf DEV'
+command = 'printf "🐳 DEV"'
 when = 'test "$DEVCONTAINER_PROMPT_CONTEXT" = DEV'
 format = '[$output]($style) '
 style = 'bold white bg:blue'

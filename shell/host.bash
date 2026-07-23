@@ -14,7 +14,7 @@ if command -v starship >/dev/null 2>&1; then
     export STARSHIP_CONFIG="${repository_root}/starship.toml"
     eval "$(starship init bash)"
 else
-    PS1='\[\e[1;97;41m\] HOST \[\e[0m\] '"${PS1}"
+    PS1='\[\e[1;30;43m\] ⚠️ HOST \[\e[0m\] '"${PS1}"
 fi
 
 unset repository_root
