@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage:
+  dc [command [args...]]
+
+Examples:
+  dc                  Start an interactive bash shell
+  dc bash             Start an interactive bash shell
+  dc codex            Run Codex in the dev container
+  dc npm test         Run a command in the dev container
+
+Environment:
+  DC_WORKSPACE_FOLDER       Workspace to open (default: current directory)
+  DC_DOTFILES_REPOSITORY   Override the dotfiles Git repository URL
+EOF
+}
+
+command -v devcontainer >/dev/null 2>&1 || {
+    printf 'dc: devcontainer CLI was not found in PATH\n' >&2
+    exit 127
+}
+
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
+workspace="${DC_WORKSPACE_FOLDER:-$PWD}"
+dotfiles_repository="${DC_DOTFILES_REPOSITORY:-}"
+
+if [[ -z "$dotfiles_repository" ]]; then
+    dotfiles_repository="$(
+        git -C "$repository_root" remote get-url origin 2>/dev/null || true
+    )"
+fi
+
+if [[ -z "$dotfiles_repository" ]]; then
+    printf '%s\n' \
+        'dc: dotfiles repository URL is not configured.' \
+        'Set DC_DOTFILES_REPOSITORY or add an origin remote to devcontainer-user-env.' >&2
+    exit 2
+fi
+
+up_args=(
+    up
+    --workspace-folder "$workspace"
+    --dotfiles-repository "$dotfiles_repository"
+    --dotfiles-install-command install-devcontainer.sh
+)
+
+devcontainer "${up_args[@]}" || exit $?
+
+if (($# == 0)) || [[ ${1:-} == bash ]]; then
+    exec_args=(bash -il)
+else
+    exec_args=("$@")
+fi
+
+devcontainer exec \
+    --workspace-folder "$workspace" \
+    --remote-env DEVCONTAINER_CONTEXT=1 \
+    "${exec_args[@]}"
