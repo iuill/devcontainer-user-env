@@ -49,8 +49,9 @@ dc codex
 dc npm test
 ```
 
-`dc codex` で起動したCodexには、`HERDR_AGENT=codex` が環境変数として
-設定されます。
+`dc codex` では、ホスト側の `dc` と `devcontainer`、コンテナ内のCodexに
+`HERDR_AGENT=codex` が設定されます。ホスト側で動くHerdrはこの値を使って、
+Dev Containerの背後で動くCodexを検出できます。
 
 `dc` は次のようにコンテナを起動します。
 

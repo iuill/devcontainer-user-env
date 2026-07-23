@@ -32,6 +32,11 @@ case "${1:-}" in
 esac
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+
+if [[ ${1:-} == codex && ${HERDR_AGENT:-} != codex ]]; then
+    exec env HERDR_AGENT=codex "$script_path" "$@"
+fi
+
 repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
 workspace="${DC_WORKSPACE_FOLDER:-$PWD}"
 dotfiles_repository="${DC_DOTFILES_REPOSITORY:-}"
