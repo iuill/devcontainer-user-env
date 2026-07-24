@@ -90,5 +90,23 @@ DC_WORKSPACE_FOLDER=/path/to/project dc bash
 DEVプロンプトは `/.dockerenv` も判定します。そのため、コンテナ内で新たに
 対話シェルを起動した場合も `🐳 DEV` バッジが表示されます。
 
-Starshipがインストールされている場合は、同梱の `starship.toml` を自動的に
-使います。Starshipがない場合はBashの `PS1` に直接バッジを追加します。
+Starshipがインストールされている場合は、ホストで `starship-host.toml`、
+Dev Containerで `starship.toml` を自動的に使います。Starshipがない場合は
+Bashの `PS1` に直接バッジを追加します。
+
+ホスト側では、`~/src` 配下のmain checkoutとworktreeを識別しやすいように
+ディレクトリ名を整形します。
+
+```text
+~/src/narou-viewer/main
+→ narou-viewer/main
+
+~/src/narou-viewer/worktrees/remove-legacy-dev-prompt
+→ narou-viewer/remove-legacy-dev-prompt
+```
+
+`src` の場所が `~/src` ではない場合は、`DEVCONTAINER_SRC_ROOT` で指定できます。
+
+```bash
+export DEVCONTAINER_SRC_ROOT=/path/to/src
+```

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+set -u
+
+current_directory="${PWD:-$(pwd)}"
+src_root="${DEVCONTAINER_SRC_ROOT:-$HOME/src}"
+
+shorten_tail() {
+    local path="$1"
+    local -a parts=()
+
+    IFS='/' read -r -a parts <<< "${path#/}"
+
+    if ((${#parts[@]} > 3)); then
+        printf '…/%s/%s/%s' \
+            "${parts[-3]}" \
+            "${parts[-2]}" \
+            "${parts[-1]}"
+    elif [[ $path == /* ]]; then
+        printf '/%s' "${path#/}"
+    else
+        printf '%s' "$path"
+    fi
+}
+
+if [[ $current_directory == "$src_root" ]]; then
+    printf 'src'
+    exit
+fi
+
+if [[ $current_directory == "$src_root/"* ]]; then
+    relative_path="${current_directory#"$src_root/"}"
+    IFS='/' read -r project layout name remaining <<< "$relative_path"
+
+    case "$layout" in
+        main)
+            display_path="$project/main"
+            remaining="${relative_path#"$project/main"}"
+            remaining="${remaining#/}"
+            ;;
+        worktrees)
+            display_path="$project/$name"
+            remaining="${relative_path#"$project/worktrees/$name"}"
+            remaining="${remaining#/}"
+            ;;
+        *)
+            shorten_tail "$relative_path"
+            exit
+            ;;
+    esac
+
+    if [[ -z $remaining ]]; then
+        printf '%s' "$display_path"
+    elif [[ $remaining == */* ]]; then
+        printf '%s/…/%s' "$display_path" "${remaining##*/}"
+    else
+        printf '%s/%s' "$display_path" "$remaining"
+    fi
+    exit
+fi
+
+if [[ $current_directory == "$HOME" ]]; then
+    printf '~'
+    exit
+fi
+
+if [[ $current_directory == "$HOME/"* ]]; then
+    shorten_tail "~/${current_directory#"$HOME/"}"
+    exit
+fi
+
+shorten_tail "$current_directory"
