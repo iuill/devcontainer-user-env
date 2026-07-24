@@ -1,5 +1,6 @@
 format = """
 ${custom.host}\
+${custom.root}\
 $username\
 $hostname\
 $localip\
@@ -44,6 +45,12 @@ command = 'printf HOST'
 when = 'test "$DEVCONTAINER_PROMPT_CONTEXT" = HOST'
 symbol = '⚠️'
 format = '[ $symbol ](bold white bg:black)[ $output ](bold black bg:yellow) '
+
+[custom.root]
+command = 'printf ROOT'
+when = 'test "$(id -u)" -eq 0'
+symbol = '🧨'
+format = '[ $symbol ](bold white bg:black)[ $output ](bold white bg:red) '
 
 [custom.workspace_directory]
 command = '"$DEVCONTAINER_USER_ENV_ROOT/bin/prompt-directory"'

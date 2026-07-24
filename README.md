@@ -86,6 +86,7 @@ DC_WORKSPACE_FOLDER=/path/to/project dc bash
 
 - ホスト：黒背景の `⚠️` と、黄色背景に黒文字の `HOST` バッジ
 - Dev Container：黒背景の `🐳` と、青背景に白文字の `DEV` バッジ
+- rootシェル：黒背景の `🧨` と、赤背景に白文字の `ROOT` バッジ
 
 DEVプロンプトは `/.dockerenv` も判定します。そのため、コンテナ内で新たに
 対話シェルを起動した場合も `🐳 DEV` バッジが表示されます。
