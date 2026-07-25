@@ -6,12 +6,15 @@ usage() {
     cat <<'EOF'
 Usage:
   dc [command [args...]]
+  dc rebuild [command [args...]]
 
 Examples:
   dc                  Start an interactive bash shell
   dc bash             Start an interactive bash shell
   dc codex            Run Codex in the dev container
   dc npm test         Run a command in the dev container
+  dc rebuild          Rebuild the dev container and start a bash shell
+  dc rebuild claude   Rebuild the dev container and run Claude Code
 
 Environment:
   DC_WORKSPACE_FOLDER       Workspace to open (default: current directory)
@@ -32,8 +35,17 @@ case "${1:-}" in
 esac
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+rebuild_requested=false
+
+if [[ ${1:-} == rebuild ]]; then
+    rebuild_requested=true
+    shift
+fi
 
 if [[ ${1:-} == codex && ${HERDR_AGENT:-} != codex ]]; then
+    if [[ $rebuild_requested == true ]]; then
+        exec env HERDR_AGENT=codex "$script_path" rebuild "$@"
+    fi
     exec env HERDR_AGENT=codex "$script_path" "$@"
 fi
 
@@ -118,6 +130,10 @@ up_args=(
     --dotfiles-repository "$dotfiles_repository"
     --dotfiles-install-command install-devcontainer.sh
 )
+
+if [[ $rebuild_requested == true ]]; then
+    up_args+=(--remove-existing-container)
+fi
 
 devcontainer "${up_args[@]}" || exit $?
 
