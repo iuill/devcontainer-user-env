@@ -6,6 +6,7 @@ Dev Containerをターミナル中心で利用するための個人用環境で�
 
 - `dc bash` で現在のリポジトリのDev Containerに入る
 - `dc codex` や `dc <command>` でDev Container内のツールを実行する
+- `dc rebuild` でDev Containerを再構築する
 - `[HOST]` と `[DEV]` を明確に区別するシェルプロンプト
 - Dev Container CLIのdotfiles機能を利用したインストール
 
@@ -47,11 +48,25 @@ dc
 dc bash
 dc codex
 dc npm test
+dc rebuild
+dc rebuild claude
 ```
 
 `dc codex` では、ホスト側の `dc` と `devcontainer`、コンテナ内のCodexに
 `HERDR_AGENT=codex` が設定されます。ホスト側で動くHerdrはこの値を使って、
 Dev Containerの背後で動くCodexを検出できます。
+
+`dc rebuild` は既存のDev Containerを削除して再構築した後、対話Bashを
+起動します。コマンドを続けて指定すると、対話Bashの代わりにそのコマンドを
+実行します。
+
+```bash
+dc rebuild claude
+dc rebuild npm test
+```
+
+bind mountやnamed volumeに保存していないコンテナ内のデータは、再構築時に
+失われます。
 
 `dc` は次のようにコンテナを起動します。
 
