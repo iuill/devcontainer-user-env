@@ -33,7 +33,7 @@
         </div>
         <button id="clipboard-button" class="text-button" type="button">クリップボードから貼り付け</button>
       </div>
-      <textarea id="text-input" rows="7" placeholder="スマートフォンではここを長押しして貼り付けできます"></textarea>
+      <textarea id="text-input" rows="7" aria-labelledby="text-heading" placeholder="スマートフォンではここを長押しして貼り付けできます"></textarea>
       <div class="composer-actions">
         <span id="text-size">0 B</span>
         <button id="send-text-button" class="primary" type="button">テキストを保存</button>
@@ -54,7 +54,7 @@
 
   <template id="image-card-template">
     <article class="card">
-      <button class="preview" type="button" aria-label="共有ファイルを開く">
+      <button class="preview" type="button">
         <img alt="" loading="lazy">
         <span class="text-preview"></span>
       </button>

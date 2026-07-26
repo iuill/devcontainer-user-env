@@ -35,11 +35,17 @@ fileInput.addEventListener("change", () => {
 
 document.addEventListener("paste", (event) => {
   if (uploading || !event.clipboardData) return;
-  if (event.target === textInput) return;
   const files = [...event.clipboardData.items]
     .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
     .map((item) => item.getAsFile())
     .filter(Boolean);
+  if (event.target === textInput) {
+    if (files.length) {
+      event.preventDefault();
+      uploadFiles(files);
+    }
+    return;
+  }
   if (files.length) {
     event.preventDefault();
     uploadFiles(files);
@@ -99,11 +105,11 @@ async function uploadFiles(files) {
 async function uploadEntries(entries) {
   if (uploading) {
     showStatus("現在の保存が完了してからもう一度お試しください", true);
-    return;
+    return 0;
   }
   if (!entries.length) {
     showStatus("画像またはテキストが見つかりませんでした", true);
-    return;
+    return 0;
   }
   const oversized = entries.find((entry) => entrySize(entry) > maxBytes);
   if (oversized) {
@@ -129,9 +135,9 @@ async function uploadEntries(entries) {
 
   uploading = false;
   chooseButton.disabled = false;
-  sendTextButton.disabled = false;
   clipboardButton.disabled = false;
   dropZone.classList.remove("busy");
+  updateTextSize();
   const succeeded = results.filter((result) => result.status === "fulfilled").length;
   const failed = results.length - succeeded;
   if (failed) {
@@ -201,6 +207,7 @@ function updateTextSize() {
   const size = new Blob([textInput.value]).size;
   textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
   textSize.classList.toggle("over-limit", size > maxBytes);
+  sendTextButton.disabled = uploading || size > maxBytes;
 }
 
 async function loadItems() {
@@ -229,11 +236,15 @@ function createCard(item) {
       img.width = item.width;
       img.height = item.height;
     }
+    card.querySelector(".preview").setAttribute("aria-label", `${item.name} を拡大`);
     textPreview.hidden = true;
   } else {
     img.remove();
     textPreview.hidden = false;
     textPreview.textContent = item.snippet || "TXT";
+    textPreview.id = `snippet-${item.name}`;
+    card.querySelector(".preview").setAttribute("aria-label", `${item.name} を開く`);
+    card.querySelector(".preview").setAttribute("aria-describedby", textPreview.id);
   }
   card.querySelector(".path").textContent = item.path;
   card.querySelector(".metadata").textContent =
@@ -289,8 +300,8 @@ function showStatus(message, isError = false) {
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
 
 async function initialize() {

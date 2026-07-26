@@ -354,8 +354,9 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	app := testApp(dir, defaultMaxBytes)
 	response := httptest.NewRecorder()
-	testApp(dir, defaultMaxBytes).routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/items", nil))
+	app.routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/items", nil))
 	var items []itemInfo
 	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
 		t.Fatal(err)
@@ -365,6 +366,17 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 	}
 	if items[0].Snippet != "old" {
 		t.Fatalf("unexpected text snippet: %q", items[0].Snippet)
+	}
+	if len(app.metadata) != 2 {
+		t.Fatalf("metadata cache contains %d entries, want 2", len(app.metadata))
+	}
+	if err := os.Remove(oldPath); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	app.routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/items", nil))
+	if _, ok := app.metadata["old.txt"]; ok {
+		t.Fatal("metadata for externally removed file was not pruned")
 	}
 }
 
@@ -473,5 +485,17 @@ func TestConfigAndHTMLAuthorizationError(t *testing.T) {
 	app.routes().ServeHTTP(config, request)
 	if config.Code != http.StatusOK || !strings.Contains(config.Body.String(), "1234") {
 		t.Fatalf("unexpected config response: status=%d body=%s", config.Code, config.Body.String())
+	}
+}
+
+func TestTextSnippetDropsIncompleteTrailingRune(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "boundary.txt")
+	content := strings.Repeat(" ", 4095) + "あ"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snippet := textSnippet(path)
+	if strings.ContainsRune(snippet, '�') {
+		t.Fatalf("snippet contains a replacement rune: %q", snippet)
 	}
 }

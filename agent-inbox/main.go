@@ -54,8 +54,8 @@ type app struct {
 	allowedUser   string
 	now           func() time.Time
 	random        io.Reader
-	dimensionsMu  sync.Mutex
-	dimensions    map[string]dimensionCache
+	metadataMu    sync.Mutex
+	metadata      map[string]metadataCache
 }
 
 type itemInfo struct {
@@ -71,11 +71,12 @@ type itemInfo struct {
 	modTime time.Time `json:"-"`
 }
 
-type dimensionCache struct {
+type metadataCache struct {
 	size    int64
 	modTime int64
 	width   int
 	height  int
+	snippet string
 }
 
 func main() {
@@ -142,7 +143,7 @@ func newApp(dir, containerPath string, maxBytes int64, allowedUser string) *app 
 		allowedUser:   allowedUser,
 		now:           time.Now,
 		random:        rand.Reader,
-		dimensions:    make(map[string]dimensionCache),
+		metadata:      make(map[string]metadataCache),
 	}
 }
 
@@ -223,6 +224,7 @@ func (a *app) listItems(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	items := make([]itemInfo, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !validStoredName(entry.Name()) {
 			continue
@@ -231,14 +233,16 @@ func (a *app) listItems(w http.ResponseWriter, _ *http.Request) {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
+		seen[entry.Name()] = struct{}{}
 		item := a.info(entry.Name(), info)
 		if item.Kind == "image" {
 			item.Width, item.Height = a.cachedImageDimensions(entry.Name(), info)
 		} else {
-			item.Snippet = textSnippet(filepath.Join(a.dir, entry.Name()))
+			item.Snippet = a.cachedTextSnippet(entry.Name(), info)
 		}
 		items = append(items, item)
 	}
+	a.pruneMetadata(seen)
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].modTime.After(items[j].modTime)
 	})
@@ -375,9 +379,9 @@ func (a *app) deleteItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "共有ファイルを削除できませんでした")
 		return
 	}
-	a.dimensionsMu.Lock()
-	delete(a.dimensions, name)
-	a.dimensionsMu.Unlock()
+	a.metadataMu.Lock()
+	delete(a.metadata, name)
+	a.metadataMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -457,9 +461,9 @@ func imageDimensions(path string) (int, int, bool) {
 }
 
 func (a *app) cachedImageDimensions(name string, info os.FileInfo) (int, int) {
-	a.dimensionsMu.Lock()
-	cached, ok := a.dimensions[name]
-	a.dimensionsMu.Unlock()
+	a.metadataMu.Lock()
+	cached, ok := a.metadata[name]
+	a.metadataMu.Unlock()
 	if ok && cached.size == info.Size() && cached.modTime == info.ModTime().UnixNano() {
 		return cached.width, cached.height
 	}
@@ -472,14 +476,42 @@ func (a *app) cachedImageDimensions(name string, info os.FileInfo) (int, int) {
 }
 
 func (a *app) cacheDimensions(name string, size int64, modTime time.Time, width, height int) {
-	a.dimensionsMu.Lock()
-	a.dimensions[name] = dimensionCache{
+	a.metadataMu.Lock()
+	a.metadata[name] = metadataCache{
 		size:    size,
 		modTime: modTime.UnixNano(),
 		width:   width,
 		height:  height,
 	}
-	a.dimensionsMu.Unlock()
+	a.metadataMu.Unlock()
+}
+
+func (a *app) cachedTextSnippet(name string, info os.FileInfo) string {
+	a.metadataMu.Lock()
+	cached, ok := a.metadata[name]
+	a.metadataMu.Unlock()
+	if ok && cached.size == info.Size() && cached.modTime == info.ModTime().UnixNano() {
+		return cached.snippet
+	}
+	snippet := textSnippet(filepath.Join(a.dir, name))
+	a.metadataMu.Lock()
+	a.metadata[name] = metadataCache{
+		size:    info.Size(),
+		modTime: info.ModTime().UnixNano(),
+		snippet: snippet,
+	}
+	a.metadataMu.Unlock()
+	return snippet
+}
+
+func (a *app) pruneMetadata(seen map[string]struct{}) {
+	a.metadataMu.Lock()
+	defer a.metadataMu.Unlock()
+	for name := range a.metadata {
+		if _, ok := seen[name]; !ok {
+			delete(a.metadata, name)
+		}
+	}
 }
 
 func textSnippet(path string) string {
@@ -488,9 +520,15 @@ func textSnippet(path string) string {
 		return ""
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 4096))
+	data, err := io.ReadAll(io.LimitReader(file, 4096+utf8.UTFMax))
 	if err != nil {
 		return ""
+	}
+	if len(data) > 4096 {
+		data = data[:4096]
+		for removed := 0; removed < utf8.UTFMax && !utf8.Valid(data); removed++ {
+			data = data[:len(data)-1]
+		}
 	}
 	text := strings.Join(strings.Fields(string(bytes.ToValidUTF8(data, []byte("�")))), " ")
 	runes := []rune(text)
