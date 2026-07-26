@@ -1,0 +1,60 @@
+name: Agent Inbox
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/agent-inbox.yml"
+      - "agent-inbox/**"
+      - "bin/build-agent-inbox"
+      - "bin/dc"
+      - "go.mod"
+      - "install-agent-inbox.sh"
+      - "systemd/agent-inbox.service"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/agent-inbox.yml"
+      - "agent-inbox/**"
+      - "bin/build-agent-inbox"
+      - "bin/dc"
+      - "go.mod"
+      - "install-agent-inbox.sh"
+      - "systemd/agent-inbox.service"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.x"
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'Unformatted files:\n%s\n' "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+
+  host-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shell syntax
+        run: bash -n bin/dc bin/build-agent-inbox install-agent-inbox.sh
+      - name: Run ShellCheck
+        run: shellcheck bin/dc bin/build-agent-inbox install-agent-inbox.sh
+      - name: Verify systemd unit
+        run: |
+          install -D -m 755 /usr/bin/true \
+            "$HOME/.local/share/devcontainer-user-env/bin/agent-inbox"
+          systemd-analyze verify systemd/agent-inbox.service

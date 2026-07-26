@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+command -v docker >/dev/null 2>&1 || {
+    printf 'build-agent-inbox: docker was not found in PATH\n' >&2
+    exit 127
+}
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
+go_image="${AGENT_INBOX_GO_IMAGE:-golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2}"
+
+mkdir -p "${repository_root}/build"
+
+docker run --rm \
+    --network none \
+    --user "$(id -u):$(id -g)" \
+    --env CGO_ENABLED=0 \
+    --env GOCACHE=/tmp/go-build \
+    --env GOMODCACHE=/tmp/go-mod \
+    --env GOTOOLCHAIN=local \
+    --mount "type=bind,source=${repository_root},target=/src" \
+    --workdir /src \
+    "$go_image" \
+    sh -eu -c 'go test ./agent-inbox
+go vet ./agent-inbox
+unformatted="$(gofmt -l agent-inbox)"
+if [ -n "$unformatted" ]; then
+    printf "Unformatted files:\n%s\n" "$unformatted" >&2
+    gofmt -d agent-inbox >&2
+    exit 1
+fi
+go build -trimpath -ldflags="-s -w" -o build/agent-inbox ./agent-inbox'
+
+printf 'Built %s\n' "${repository_root}/build/agent-inbox"

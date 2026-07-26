@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Agent Inbox</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">DEV CONTAINER DROP ZONE</p>
+        <h1>Agent Inbox</h1>
+        <p class="lead">画像や長いテキストを貼り付けるだけ。保存したファイルはDev Containerの <code>/inbox</code> に届きます。</p>
+      </div>
+      <button id="choose-button" class="secondary" type="button">ファイルを選択</button>
+      <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,text/plain,.txt" multiple hidden>
+    </header>
+
+    <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="画像やテキストの貼り付けまたはドロップ領域">
+      <div class="paste-icon" aria-hidden="true">⌘</div>
+      <h2><kbd>Ctrl</kbd> + <kbd>V</kbd> で貼り付け</h2>
+      <p>または画像・テキストファイルをここへドロップ</p>
+    </section>
+
+    <section class="text-composer" aria-labelledby="text-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LONG TEXT</p>
+          <h2 id="text-heading">テキストを共有</h2>
+        </div>
+        <button id="clipboard-button" class="text-button" type="button">クリップボードから貼り付け</button>
+      </div>
+      <textarea id="text-input" rows="7" aria-labelledby="text-heading" placeholder="スマートフォンではここを長押しして貼り付けできます"></textarea>
+      <div class="composer-actions">
+        <span id="text-size">0 B</span>
+        <button id="send-text-button" class="primary" type="button">テキストを保存</button>
+      </div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <aside id="saved-item" class="saved-item" role="region" aria-label="保存したパス" hidden>
+      <div class="saved-details">
+        <span id="saved-message">保存しました</span>
+        <code id="saved-host-path"></code>
+        <code id="saved-dev-path"></code>
+      </div>
+      <div class="saved-actions">
+        <button id="saved-host-copy-button" class="primary" type="button">HOST パス</button>
+        <button id="saved-dev-copy-button" class="secondary" type="button">DEV パス</button>
+      </div>
+      <button id="saved-close-button" class="saved-close" type="button" aria-label="閉じる">×</button>
+    </aside>
+
+    <section class="library">
+      <div class="section-heading">
+        <h2>最近の共有ファイル</h2>
+        <button id="refresh-button" class="text-button" type="button">更新</button>
+      </div>
+      <div id="gallery" class="gallery"></div>
+      <p id="empty-state" class="empty-state" hidden>まだ共有ファイルがありません。</p>
+    </section>
+  </main>
+
+  <template id="image-card-template">
+    <article class="card">
+      <button class="preview" type="button">
+        <img alt="" loading="lazy">
+        <span class="text-preview"></span>
+      </button>
+      <div class="card-body">
+        <div class="paths">
+          <code class="host-path"></code>
+          <code class="dev-path"></code>
+        </div>
+        <div class="metadata"></div>
+        <div class="actions">
+          <button class="host-copy-button primary" type="button">HOST パス</button>
+          <button class="dev-copy-button secondary" type="button">DEV パス</button>
+          <button class="delete-button danger" type="button">削除</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <dialog id="preview-dialog">
+    <button id="close-preview" class="dialog-close" type="button" aria-label="閉じる">×</button>
+    <img id="preview-image" alt="画像の拡大表示">
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

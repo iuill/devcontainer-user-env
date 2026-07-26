@@ -7,6 +7,7 @@ Dev Containerをターミナル中心で利用するための個人用環境で�
 - `dc bash` で現在のリポジトリのDev Containerに入る
 - `dc codex` や `dc <command>` でDev Container内のツールを実行する
 - `dc rebuild` でDev Containerを再構築する
+- ホストへ貼り付けた画像や長いテキストをDev Containerから参照する
 - `[HOST]` と `[DEV]` を明確に区別するシェルプロンプト
 - Dev Container CLIのdotfiles機能を利用したインストール
 
@@ -19,6 +20,7 @@ Dev Containerをターミナル中心で利用するための個人用環境で�
 - [Dev Container CLI](https://github.com/devcontainers/cli)
 - Docker、またはDev Container CLIが対応するコンテナランタイム
 - [Starship](https://starship.rs/)（任意）
+- [Tailscale](https://tailscale.com/)（Agent InboxをTailnetへ公開する場合）
 
 ## ホストへのインストール
 
@@ -96,6 +98,141 @@ export DC_DOTFILES_REPOSITORY=https://github.com/example/devcontainer-user-env.g
 ```bash
 DC_WORKSPACE_FOLDER=/path/to/project dc bash
 ```
+
+## Agent Inbox
+
+Agent Inboxは、Windows PCやスマートフォンのブラウザから画像や長いテキストを
+貼り付け、ホストの `~/agent-inbox` へ保存する小さなWebアプリです。保存した
+ファイルは、`dc` が起動するすべてのDev Containerから `/inbox` として
+参照できます。チャットへ直接収まらないテキストをファイルとしてAIエージェントへ
+渡す用途にも使えます。
+
+WebアプリはGo標準ライブラリと素のHTML、CSS、JavaScriptだけで構成されています。
+GoのDockerイメージを使って単一バイナリにするため、ホストへGoを
+インストールする必要はありません。
+
+### インストール
+
+Dockerを利用できる状態で、次を実行します。
+
+```bash
+./install-agent-inbox.sh
+```
+
+このスクリプトは一時コンテナ内でテストとビルドを行い、生成したバイナリと
+systemdユーザーサービスをインストールします。ビルド用コンテナは終了時に
+削除されます。GoのDockerイメージは次回のビルド用にキャッシュされます。
+
+標準ではダイジェストを固定した `golang:1.26-alpine` を使います。別の
+イメージを使う場合は、ビルド時に指定できます。
+
+```bash
+AGENT_INBOX_GO_IMAGE=golang:1.26-alpine ./install-agent-inbox.sh
+```
+
+### 起動とTailnetへの公開
+
+Webアプリを現在のログイン時と今後のログイン時に起動します。
+
+```bash
+systemctl --user enable --now agent-inbox.service
+```
+
+systemdを使わないLinuxでは、通常のコマンドとして起動できます。
+
+```bash
+agent-inbox
+```
+
+アプリ自体は `127.0.0.1:3939` だけで待ち受けます。Tailscale Serveを使うと、
+MagicDNSのホスト名を使ったHTTPSでTailnet内へ公開できます。
+
+```bash
+tailscale serve --bg --yes 3939
+tailscale serve status
+```
+
+表示されたURLをWindows PCやスマートフォンで開き、ページ上で画像または
+テキストを貼り付けます。画像・テキストファイルのドロップにも対応しています。
+保存後は、ホスト用の `$HOME/agent-inbox/<ファイル名>` とDev Container用の
+`/inbox/<ファイル名>` が表示されます。渡すAIエージェントの実行環境に合わせて
+`HOST パス` または `DEV パス` をコピーできます。
+スマートフォンではテキスト入力欄を長押しして貼り付けるか、
+「クリップボードから貼り付け」ボタンを使用します。
+
+ホスト上のCLIからUTF-8テキストファイルを保存することもできます。
+
+```bash
+curl -sS --fail -X POST http://127.0.0.1:3939/api/texts \
+  -H 'X-Agent-Inbox: 1' \
+  -H 'Content-Type: text/plain; charset=utf-8' \
+  --data-binary @notes.txt
+```
+
+Tailscale ServeはTailnet全体へ公開します。Tailnetに他のユーザーや共有ノードが
+存在する場合、そのままでは全員が閲覧・保存・削除できます。アクセスする
+Tailscaleユーザーを限定する場合は、systemdサービスのdrop-inで
+`AGENT_INBOX_ALLOWED_USER` を設定します。
+
+```ini
+[Service]
+Environment=AGENT_INBOX_ALLOWED_USER=you@example.com
+```
+
+Agent Inboxにはインターネット公開用の認証機能がありません。
+**`tailscale funnel` は使用しないでください。**
+
+ユーザー制限はTailscale Serveが付与するIdentity Headerを検証します。
+Identity Headerが付かないtagged nodeからのアクセスは拒否されます。
+localhostから直接アクセスできるプロセスはヘッダを任意に指定できるため、
+この制限は同一ホスト上のプロセスに対する認証ではありません。
+
+公開を解除する場合は次を実行します。
+
+```bash
+tailscale serve reset
+```
+
+### 保存先とDev Containerへのマウント
+
+ホスト側の標準保存先は `$HOME/agent-inbox`、Dev Container側は
+`/inbox` です。ホスト側を変更する場合は、Webアプリの
+`AGENT_INBOX_DIR` と `dc` の `DC_AGENT_INBOX_DIR` に同じ絶対パスを
+設定してください。
+
+```bash
+export AGENT_INBOX_DIR=/mnt/data/agent-inbox
+export DC_AGENT_INBOX_DIR=/mnt/data/agent-inbox
+```
+
+systemdサービスで標準以外の場所を使う場合は、サービスのdrop-inで
+`AGENT_INBOX_DIR` と `ReadWritePaths` を同じ場所へ変更する必要があります。
+
+すでに起動しているDev Containerへマウントを追加するには、一度再構築します。
+
+```bash
+dc rebuild
+```
+
+現在のDev Container CLIの `--mount` にはread-only指定がないため、
+`/inbox` はコンテナからも書き込み可能です。Agent Inboxを使用しない場合や、
+ホストディレクトリを書き込み可能でマウントしたくない場合は無効化できます。
+
+```bash
+export DC_AGENT_INBOX=0
+```
+
+`false`、`no`、`off` でも無効化できます。
+無効化した状態で既存コンテナからマウントを外す場合も `dc rebuild` が必要です。
+
+### Webアプリの制限
+
+- 保存できる形式はPNG、JPEG、GIF、UTF-8プレーンテキスト
+- 画像・テキストとも1ファイルの標準上限は20 MiB
+- 画像は一辺20,000ピクセル、総ピクセル数1億まで
+- アプリはユーザーが指定したファイル名を保存先に使用しない
+- 削除できるのは保存ディレクトリ直下の対応ファイルだけ
+- 保存領域の自動削除は行わないため、不要なファイルはWeb UIから手動で削除する
 
 ## プロンプトの色
 

@@ -19,6 +19,8 @@ Examples:
 Environment:
   DC_WORKSPACE_FOLDER       Workspace to open (default: current directory)
   DC_DOTFILES_REPOSITORY   Override the dotfiles Git repository URL
+  DC_AGENT_INBOX            Set to 0 to disable the Agent Inbox mount
+  DC_AGENT_INBOX_DIR        Agent Inbox directory (default: $HOME/agent-inbox)
 EOF
 }
 
@@ -52,6 +54,28 @@ fi
 repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
 workspace="${DC_WORKSPACE_FOLDER:-$PWD}"
 dotfiles_repository="${DC_DOTFILES_REPOSITORY:-}"
+agent_inbox_enabled="${DC_AGENT_INBOX:-1}"
+agent_inbox_dir="${DC_AGENT_INBOX_DIR:-${HOME}/agent-inbox}"
+
+case "${agent_inbox_enabled,,}" in
+    0|false|no|off)
+        agent_inbox_enabled=false
+        ;;
+    *)
+        agent_inbox_enabled=true
+        ;;
+esac
+
+if [[ $agent_inbox_enabled == true ]]; then
+    if [[ $agent_inbox_dir != /* || $agent_inbox_dir == *','* || $agent_inbox_dir == *$'\n'* ]]; then
+        printf 'dc: DC_AGENT_INBOX_DIR must be an absolute path without commas or newlines\n' >&2
+        exit 2
+    fi
+    if ! mkdir -p "$agent_inbox_dir"; then
+        printf 'dc: could not create Agent Inbox directory: %s\n' "$agent_inbox_dir" >&2
+        exit 2
+    fi
+fi
 
 if [[ -z "$dotfiles_repository" ]]; then
     dotfiles_repository="$(
@@ -130,6 +154,10 @@ up_args=(
     --dotfiles-repository "$dotfiles_repository"
     --dotfiles-install-command install-devcontainer.sh
 )
+
+if [[ $agent_inbox_enabled == true ]]; then
+    up_args+=(--mount "type=bind,source=${agent_inbox_dir},target=/inbox")
+fi
 
 if [[ $rebuild_requested == true ]]; then
     up_args+=(--remove-existing-container)
