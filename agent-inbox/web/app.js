@@ -260,12 +260,12 @@ function createCard(item) {
   });
   card.querySelector(".copy-button").addEventListener("click", async (event) => {
     try {
-      await navigator.clipboard.writeText(item.path);
+      await copyText(item.path);
       const button = event.currentTarget;
       button.textContent = "コピーしました";
       setTimeout(() => { button.textContent = "パスをコピー"; }, 1200);
     } catch {
-      showStatus(`コピーできませんでした: ${item.path}`, true);
+      window.prompt("次のパスをコピーしてください", item.path);
     }
   });
   card.querySelector(".delete-button").addEventListener("click", async () => {
@@ -288,6 +288,29 @@ function createCard(item) {
 function closePreview() {
   if (dialog.open) dialog.close();
   previewImage.removeAttribute("src");
+}
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall back for browsers that expose the API but deny clipboard access.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("clipboard copy failed");
 }
 
 function showStatus(message, isError = false) {
