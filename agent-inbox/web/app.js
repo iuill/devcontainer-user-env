@@ -14,11 +14,13 @@ const clipboardButton = document.querySelector("#clipboard-button");
 const savedItem = document.querySelector("#saved-item");
 const savedHostPath = document.querySelector("#saved-host-path");
 const savedDevPath = document.querySelector("#saved-dev-path");
+const savedMessage = document.querySelector("#saved-message");
 const savedHostCopyButton = document.querySelector("#saved-host-copy-button");
 const savedDevCopyButton = document.querySelector("#saved-dev-copy-button");
 let uploading = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
+let savedPaths = {host: "", dev: ""};
 
 chooseButton.addEventListener("click", () => fileInput.click());
 sendTextButton.addEventListener("click", uploadTextInput);
@@ -27,9 +29,9 @@ document.querySelector("#saved-close-button").addEventListener("click", () => {
   savedItem.hidden = true;
 });
 savedHostCopyButton.addEventListener("click", () =>
-  copyPath(savedHostCopyButton, savedHostPath.textContent, "HOST パス"));
+  copyPath(savedHostCopyButton, savedPaths.host, "HOST パス"));
 savedDevCopyButton.addEventListener("click", () =>
-  copyPath(savedDevCopyButton, savedDevPath.textContent, "DEV パス"));
+  copyPath(savedDevCopyButton, savedPaths.dev, "DEV パス"));
 textInput.addEventListener("input", updateTextSize);
 document.querySelector("#refresh-button").addEventListener("click", loadItems);
 document.querySelector("#close-preview").addEventListener("click", closePreview);
@@ -115,6 +117,7 @@ async function uploadFiles(files) {
 }
 
 async function uploadEntries(entries) {
+  savedItem.hidden = true;
   if (uploading) {
     showStatus("現在の保存が完了してからもう一度お試しください", true);
     return 0;
@@ -290,6 +293,9 @@ function createCard(item) {
       });
       card.remove();
       emptyState.hidden = gallery.children.length !== 0;
+      if (savedPaths.host === item.hostPath || savedPaths.dev === item.containerPath) {
+        savedItem.hidden = true;
+      }
       showStatus("共有ファイルを削除しました");
     } catch (error) {
       showStatus(error.message, true);
@@ -317,6 +323,8 @@ async function copyText(text) {
   textarea.value = text;
   textarea.readOnly = true;
   textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
   textarea.style.opacity = "0";
   document.body.append(textarea);
   textarea.select();
@@ -345,7 +353,8 @@ function showStatus(message, isError = false) {
 }
 
 function showSavedItem(item, count) {
-  savedItem.querySelector("span").textContent =
+  savedPaths = {host: item.hostPath, dev: item.containerPath};
+  savedMessage.textContent =
     count > 1 ? `${count}件保存しました（最後のファイル）` : "保存しました";
   savedHostPath.textContent = `HOST ${item.hostPath}`;
   savedDevPath.textContent = `DEV  ${item.containerPath}`;
@@ -364,10 +373,10 @@ async function initialize() {
   try {
     const config = await request("/api/config");
     maxBytes = config.maxBytes;
-    updateTextSize();
   } catch (error) {
     showStatus(error.message, true);
   }
+  updateTextSize();
   await loadItems();
 }
 

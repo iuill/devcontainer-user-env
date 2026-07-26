@@ -97,7 +97,7 @@ func TestUploadListAndDeleteImage(t *testing.T) {
 	if created.Name != "20260726-123456.789-01020304.png" {
 		t.Fatalf("unexpected name: %q", created.Name)
 	}
-	if created.Path != "/inbox/"+created.Name || created.Kind != "image" {
+	if created.Kind != "image" {
 		t.Fatalf("unexpected item: %#v", created)
 	}
 	if created.HostPath != filepath.Join(dir, created.Name) ||

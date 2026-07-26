@@ -61,7 +61,6 @@ type app struct {
 type itemInfo struct {
 	Name          string    `json:"name"`
 	Kind          string    `json:"kind"`
-	Path          string    `json:"path"`
 	HostPath      string    `json:"hostPath"`
 	ContainerPath string    `json:"containerPath"`
 	URL           string    `json:"url"`
@@ -528,7 +527,11 @@ func textSnippet(path string) string {
 	}
 	if len(data) > 4096 {
 		data = data[:4096]
-		for removed := 0; removed < utf8.UTFMax && !utf8.Valid(data); removed++ {
+		for len(data) > 0 {
+			r, size := utf8.DecodeLastRune(data)
+			if r != utf8.RuneError || size > 1 {
+				break
+			}
 			data = data[:len(data)-1]
 		}
 	}
@@ -594,7 +597,6 @@ func (a *app) info(name string, info os.FileInfo) itemInfo {
 	return itemInfo{
 		Name:          name,
 		Kind:          kind,
-		Path:          a.containerPath + "/" + name,
 		HostPath:      filepath.Join(a.dir, name),
 		ContainerPath: a.containerPath + "/" + name,
 		URL:           "/files/" + name,
