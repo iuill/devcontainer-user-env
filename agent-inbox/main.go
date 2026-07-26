@@ -17,6 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -38,6 +40,8 @@ const (
 	maxPixels            = 100_000_000
 	mutationHeader       = "X-Agent-Inbox"
 	shutdownTimeout      = 30 * time.Second
+	uploadTimeout        = 10 * time.Minute
+	textSnippetRunes     = 180
 )
 
 //go:embed web/*
@@ -50,6 +54,8 @@ type app struct {
 	allowedUser   string
 	now           func() time.Time
 	random        io.Reader
+	dimensionsMu  sync.Mutex
+	dimensions    map[string]dimensionCache
 }
 
 type itemInfo struct {
@@ -61,7 +67,15 @@ type itemInfo struct {
 	Time    string    `json:"time"`
 	Width   int       `json:"width,omitempty"`
 	Height  int       `json:"height,omitempty"`
+	Snippet string    `json:"snippet,omitempty"`
 	modTime time.Time `json:"-"`
+}
+
+type dimensionCache struct {
+	size    int64
+	modTime int64
+	width   int
+	height  int
 }
 
 func main() {
@@ -128,11 +142,13 @@ func newApp(dir, containerPath string, maxBytes int64, allowedUser string) *app 
 		allowedUser:   allowedUser,
 		now:           time.Now,
 		random:        rand.Reader,
+		dimensions:    make(map[string]dimensionCache),
 	}
 }
 
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/config", a.getConfig)
 	mux.HandleFunc("GET /api/items", a.listItems)
 	mux.HandleFunc("POST /api/images", a.uploadImage)
 	mux.HandleFunc("POST /api/texts", a.uploadText)
@@ -150,11 +166,21 @@ func (a *app) routes() http.Handler {
 func (a *app) authorize(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.allowedUser != "" && r.Header.Get("Tailscale-User-Login") != a.allowedUser {
+			if r.Header.Get("Sec-Fetch-Mode") == "navigate" || strings.Contains(r.Header.Get("Accept"), "text/html") {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprint(w, "<!doctype html><html lang=\"ja\"><meta charset=\"utf-8\"><title>アクセス拒否</title><body><h1>アクセスできません</h1><p>このTailscaleユーザーにはアクセスが許可されていません。</p></body></html>")
+				return
+			}
 			writeError(w, http.StatusForbidden, "このTailscaleユーザーにはアクセスが許可されていません")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *app) getConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]int64{"maxBytes": a.maxBytes})
 }
 
 func (a *app) serveItem(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +233,9 @@ func (a *app) listItems(w http.ResponseWriter, _ *http.Request) {
 		}
 		item := a.info(entry.Name(), info)
 		if item.Kind == "image" {
-			item.Width, item.Height = imageDimensions(filepath.Join(a.dir, entry.Name()))
+			item.Width, item.Height = a.cachedImageDimensions(entry.Name(), info)
+		} else {
+			item.Snippet = textSnippet(filepath.Join(a.dir, entry.Name()))
 		}
 		items = append(items, item)
 	}
@@ -222,6 +250,7 @@ func (a *app) uploadImage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "不正なアップロード要求です")
 		return
 	}
+	setUploadReadDeadline(w)
 
 	r.Body = http.MaxBytesReader(w, r.Body, a.maxBytes+(1<<20))
 	if err := r.ParseMultipartForm(multipartMemory); err != nil {
@@ -265,6 +294,7 @@ func (a *app) uploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	item.Width = width
 	item.Height = height
+	a.cacheDimensions(item.Name, item.Size, item.modTime, width, height)
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -273,7 +303,9 @@ func (a *app) uploadText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "不正なアップロード要求です")
 		return
 	}
-	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "text/plain" {
+	setUploadReadDeadline(w)
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || !strings.EqualFold(mediaType, "text/plain") {
 		writeError(w, http.StatusUnsupportedMediaType, "UTF-8のプレーンテキストだけを保存できます")
 		return
 	}
@@ -343,7 +375,14 @@ func (a *app) deleteItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "共有ファイルを削除できませんでした")
 		return
 	}
+	a.dimensionsMu.Lock()
+	delete(a.dimensions, name)
+	a.dimensionsMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func setUploadReadDeadline(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(uploadTimeout))
 }
 
 func validMutation(r *http.Request) bool {
@@ -404,17 +443,61 @@ func validateImage(data []byte) (string, int, int, error) {
 	return extension, config.Width, config.Height, nil
 }
 
-func imageDimensions(path string) (int, int) {
+func imageDimensions(path string) (int, int, bool) {
 	file, err := os.Open(path)
 	if err != nil {
-		return 0, 0
+		return 0, 0, false
 	}
 	defer file.Close()
 	config, _, err := image.DecodeConfig(file)
 	if err != nil {
+		return 0, 0, false
+	}
+	return config.Width, config.Height, true
+}
+
+func (a *app) cachedImageDimensions(name string, info os.FileInfo) (int, int) {
+	a.dimensionsMu.Lock()
+	cached, ok := a.dimensions[name]
+	a.dimensionsMu.Unlock()
+	if ok && cached.size == info.Size() && cached.modTime == info.ModTime().UnixNano() {
+		return cached.width, cached.height
+	}
+	width, height, ok := imageDimensions(filepath.Join(a.dir, name))
+	if !ok {
 		return 0, 0
 	}
-	return config.Width, config.Height
+	a.cacheDimensions(name, info.Size(), info.ModTime(), width, height)
+	return width, height
+}
+
+func (a *app) cacheDimensions(name string, size int64, modTime time.Time, width, height int) {
+	a.dimensionsMu.Lock()
+	a.dimensions[name] = dimensionCache{
+		size:    size,
+		modTime: modTime.UnixNano(),
+		width:   width,
+		height:  height,
+	}
+	a.dimensionsMu.Unlock()
+}
+
+func textSnippet(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 4096))
+	if err != nil {
+		return ""
+	}
+	text := strings.Join(strings.Fields(string(bytes.ToValidUTF8(data, []byte("�")))), " ")
+	runes := []rune(text)
+	if len(runes) > textSnippetRunes {
+		return string(runes[:textSnippetRunes]) + "…"
+	}
+	return text
 }
 
 func (a *app) createFile(extension string, data []byte) (string, string, error) {

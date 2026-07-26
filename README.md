@@ -155,6 +155,17 @@ tailscale serve status
 表示されたURLをWindows PCやスマートフォンで開き、ページ上で画像または
 テキストを貼り付けます。画像・テキストファイルのドロップにも対応しています。
 保存後に表示される `/inbox/<ファイル名>` をAIエージェントへ渡せます。
+スマートフォンではテキスト入力欄を長押しして貼り付けるか、
+「クリップボードから貼り付け」ボタンを使用します。
+
+ホスト上のCLIからUTF-8テキストファイルを保存することもできます。
+
+```bash
+curl -sS --fail -X POST http://127.0.0.1:3939/api/texts \
+  -H 'X-Agent-Inbox: 1' \
+  -H 'Content-Type: text/plain; charset=utf-8' \
+  --data-binary @notes.txt
+```
 
 Tailscale ServeはTailnet全体へ公開します。Tailnetに他のユーザーや共有ノードが
 存在する場合、そのままでは全員が閲覧・保存・削除できます。アクセスする
@@ -168,6 +179,11 @@ Environment=AGENT_INBOX_ALLOWED_USER=you@example.com
 
 Agent Inboxにはインターネット公開用の認証機能がありません。
 **`tailscale funnel` は使用しないでください。**
+
+ユーザー制限はTailscale Serveが付与するIdentity Headerを検証します。
+Identity Headerが付かないtagged nodeからのアクセスは拒否されます。
+localhostから直接アクセスできるプロセスはヘッダを任意に指定できるため、
+この制限は同一ホスト上のプロセスに対する認証ではありません。
 
 公開を解除する場合は次を実行します。
 
@@ -204,6 +220,7 @@ dc rebuild
 export DC_AGENT_INBOX=0
 ```
 
+`false`、`no`、`off` でも無効化できます。
 無効化した状態で既存コンテナからマウントを外す場合も `dc rebuild` が必要です。
 
 ### Webアプリの制限

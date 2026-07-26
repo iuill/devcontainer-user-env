@@ -15,7 +15,7 @@
         <h1>Agent Inbox</h1>
         <p class="lead">画像や長いテキストを貼り付けるだけ。保存したファイルはDev Containerの <code>/inbox</code> に届きます。</p>
       </div>
-      <button id="choose-button" class="secondary" type="button">画像を選択</button>
+      <button id="choose-button" class="secondary" type="button">ファイルを選択</button>
       <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,text/plain,.txt" multiple hidden>
     </header>
 
@@ -23,6 +23,21 @@
       <div class="paste-icon" aria-hidden="true">⌘</div>
       <h2><kbd>Ctrl</kbd> + <kbd>V</kbd> で貼り付け</h2>
       <p>または画像・テキストファイルをここへドロップ</p>
+    </section>
+
+    <section class="text-composer" aria-labelledby="text-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LONG TEXT</p>
+          <h2 id="text-heading">テキストを共有</h2>
+        </div>
+        <button id="clipboard-button" class="text-button" type="button">クリップボードから貼り付け</button>
+      </div>
+      <textarea id="text-input" rows="7" placeholder="スマートフォンではここを長押しして貼り付けできます"></textarea>
+      <div class="composer-actions">
+        <span id="text-size">0 B</span>
+        <button id="send-text-button" class="primary" type="button">テキストを保存</button>
+      </div>
     </section>
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
@@ -41,7 +56,7 @@
     <article class="card">
       <button class="preview" type="button" aria-label="共有ファイルを開く">
         <img alt="" loading="lazy">
-        <span class="text-preview" aria-hidden="true">TXT</span>
+        <span class="text-preview"></span>
       </button>
       <div class="card-body">
         <code class="path"></code>

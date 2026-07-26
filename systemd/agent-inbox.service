@@ -14,11 +14,13 @@ ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/agent-inbox
 CapabilityBoundingSet=
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
 RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+ProtectProc=invisible
 MemoryMax=512M
 
 [Install]

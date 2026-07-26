@@ -178,6 +178,53 @@ kbd {
   color: #ff9bab;
 }
 
+.text-composer {
+  margin-top: 36px;
+  padding: 24px;
+  border: 1px solid #202b34;
+  border-radius: 18px;
+  background: #111820;
+}
+
+.text-composer .section-heading {
+  align-items: end;
+}
+
+.text-composer h2,
+.text-composer .eyebrow {
+  margin-bottom: 0;
+}
+
+.text-composer textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 14px 16px;
+  border: 1px solid #34424d;
+  border-radius: 12px;
+  outline: none;
+  background: #0b1015;
+  color: #e8edf2;
+  font: 0.9rem/1.55 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+}
+
+.text-composer textarea:focus {
+  border-color: #58c9f3;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  color: #71808c;
+  font-size: 0.8rem;
+}
+
+.over-limit {
+  color: #ff9bab;
+}
+
 .library {
   margin-top: 46px;
 }
@@ -235,9 +282,13 @@ kbd {
   place-items: center;
   color: #58c9f3;
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-  font-size: 3.2rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  overflow: hidden;
+  padding: 24px;
+  color: #b8e9fb;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.55;
+  text-align: left;
 }
 
 .text-preview[hidden] {

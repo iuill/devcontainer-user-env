@@ -148,6 +148,35 @@ func TestUploadText(t *testing.T) {
 	}
 }
 
+func TestUploadTextValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        []byte
+		wantStatus  int
+	}{
+		{"mixed case media type", "Text/Plain; Charset=UTF-8", []byte("valid"), http.StatusCreated},
+		{"empty", "text/plain", nil, http.StatusBadRequest},
+		{"wrong media type", "application/json", []byte("{}"), http.StatusUnsupportedMediaType},
+		{"invalid media type", "not a media type", []byte("text"), http.StatusUnsupportedMediaType},
+		{"invalid UTF-8", "text/plain", []byte{0xff, 0xfe}, http.StatusUnsupportedMediaType},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := testApp(t.TempDir(), defaultMaxBytes)
+			app.random = bytes.NewReader([]byte{1, 2, 3, 4})
+			request := httptest.NewRequest(http.MethodPost, "/api/texts", bytes.NewReader(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			request.Header.Set(mutationHeader, "1")
+			response := httptest.NewRecorder()
+			app.routes().ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d, body = %s", response.Code, test.wantStatus, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestMutationProtection(t *testing.T) {
 	app := testApp(t.TempDir(), defaultMaxBytes)
 	tests := []struct {
@@ -200,6 +229,30 @@ func TestUploadSizeLimitReturns413(t *testing.T) {
 	app.routes().ServeHTTP(textResponse, textUploadRequest(strings.Repeat("x", 17)))
 	if textResponse.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("text status = %d, body = %s", textResponse.Code, textResponse.Body.String())
+	}
+}
+
+func TestMultipartBodyLimitReturns413(t *testing.T) {
+	app := testApp(t.TempDir(), 16)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormField("padding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, strings.Repeat("x", int(16+(1<<20)+1))); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/images", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set(mutationHeader, "1")
+	response := httptest.NewRecorder()
+	app.routes().ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d, body = %s", response.Code, http.StatusRequestEntityTooLarge, response.Body.String())
 	}
 }
 
@@ -310,6 +363,9 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 	if len(items) != 2 || items[0].Name != "old.txt" || items[1].Name != "new.png" {
 		t.Fatalf("unexpected sorted items: %#v", items)
 	}
+	if items[0].Snippet != "old" {
+		t.Fatalf("unexpected text snippet: %q", items[0].Snippet)
+	}
 }
 
 func TestDeleteRejectsTraversal(t *testing.T) {
@@ -330,6 +386,34 @@ func TestDeleteRejectsTraversal(t *testing.T) {
 	}
 	if _, err := os.Stat(decoy); err != nil {
 		t.Fatalf("decoy was removed: %v", err)
+	}
+}
+
+func TestDeleteRejectsNonRegularFiles(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "folder.txt"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"folder.txt", "link.txt"} {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodDelete, "/api/items/"+name, nil)
+			request.Header.Set(mutationHeader, "1")
+			response := httptest.NewRecorder()
+			testApp(dir, defaultMaxBytes).routes().ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+			}
+		})
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "keep" {
+		t.Fatalf("target changed: %q, %v", data, err)
 	}
 }
 
@@ -370,5 +454,24 @@ func TestCreateFileRetriesCollision(t *testing.T) {
 	}
 	if name != "19700101-000000.000-05060708.txt" {
 		t.Fatalf("unexpected retried name: %s", name)
+	}
+}
+
+func TestConfigAndHTMLAuthorizationError(t *testing.T) {
+	app := newApp(t.TempDir(), "/inbox", 1234, "owner@example.com")
+	denied := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept", "text/html")
+	app.routes().ServeHTTP(denied, request)
+	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("unexpected HTML denial: status=%d content-type=%q", denied.Code, denied.Header().Get("Content-Type"))
+	}
+
+	config := httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	request.Header.Set("Tailscale-User-Login", "owner@example.com")
+	app.routes().ServeHTTP(config, request)
+	if config.Code != http.StatusOK || !strings.Contains(config.Body.String(), "1234") {
+		t.Fatalf("unexpected config response: status=%d body=%s", config.Code, config.Body.String())
 	}
 }

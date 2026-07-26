@@ -7,10 +7,18 @@ const fileInput = document.querySelector("#file-input");
 const template = document.querySelector("#image-card-template");
 const dialog = document.querySelector("#preview-dialog");
 const previewImage = document.querySelector("#preview-image");
+const textInput = document.querySelector("#text-input");
+const textSize = document.querySelector("#text-size");
+const sendTextButton = document.querySelector("#send-text-button");
+const clipboardButton = document.querySelector("#clipboard-button");
 let uploading = false;
 let dragDepth = 0;
+let maxBytes = 20 * 1024 * 1024;
 
 chooseButton.addEventListener("click", () => fileInput.click());
+sendTextButton.addEventListener("click", uploadTextInput);
+clipboardButton.addEventListener("click", pasteClipboardText);
+textInput.addEventListener("input", updateTextSize);
 document.querySelector("#refresh-button").addEventListener("click", loadItems);
 document.querySelector("#close-preview").addEventListener("click", closePreview);
 dialog.addEventListener("click", (event) => {
@@ -27,6 +35,7 @@ fileInput.addEventListener("change", () => {
 
 document.addEventListener("paste", (event) => {
   if (uploading || !event.clipboardData) return;
+  if (event.target === textInput) return;
   const files = [...event.clipboardData.items]
     .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
     .map((item) => item.getAsFile())
@@ -77,13 +86,13 @@ async function request(url, options = {}) {
 }
 
 async function uploadFiles(files) {
-  const entries = await Promise.all(files.map(async (file) => {
+  const entries = files.map((file) => {
     if (file.type.startsWith("image/")) return {kind: "image", value: file};
     if (file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt")) {
-      return {kind: "text", value: await file.text()};
+      return {kind: "textFile", value: file};
     }
     return {kind: "unsupported", value: file.name};
-  }));
+  });
   uploadEntries(entries);
 }
 
@@ -96,9 +105,16 @@ async function uploadEntries(entries) {
     showStatus("画像またはテキストが見つかりませんでした", true);
     return;
   }
+  const oversized = entries.find((entry) => entrySize(entry) > maxBytes);
+  if (oversized) {
+    showStatus(`1ファイルの上限は${formatBytes(maxBytes)}です`, true);
+    return 0;
+  }
 
   uploading = true;
   chooseButton.disabled = true;
+  sendTextButton.disabled = true;
+  clipboardButton.disabled = true;
   dropZone.classList.add("busy");
   showStatus(`${entries.length}件のファイルを保存しています…`);
 
@@ -113,6 +129,8 @@ async function uploadEntries(entries) {
 
   uploading = false;
   chooseButton.disabled = false;
+  sendTextButton.disabled = false;
+  clipboardButton.disabled = false;
   dropZone.classList.remove("busy");
   const succeeded = results.filter((result) => result.status === "fulfilled").length;
   const failed = results.length - succeeded;
@@ -123,6 +141,7 @@ async function uploadEntries(entries) {
     showStatus(`${succeeded}件のファイルを保存しました`);
   }
   if (succeeded) await loadItems();
+  return succeeded;
 }
 
 function uploadEntry(entry) {
@@ -135,7 +154,7 @@ function uploadEntry(entry) {
       body: form,
     });
   }
-  if (entry.kind === "text") {
+  if (entry.kind === "text" || entry.kind === "textFile") {
     return request("/api/texts", {
       method: "POST",
       headers: {
@@ -146,6 +165,42 @@ function uploadEntry(entry) {
     });
   }
   return Promise.reject(new Error(`${entry.value} は対応していないファイル形式です`));
+}
+
+async function uploadTextInput() {
+  const text = textInput.value;
+  if (!text) {
+    showStatus("共有するテキストを入力してください", true);
+    textInput.focus();
+    return;
+  }
+  if (await uploadEntries([{kind: "text", value: text}])) {
+    textInput.value = "";
+    updateTextSize();
+  }
+}
+
+async function pasteClipboardText() {
+  try {
+    textInput.value = await navigator.clipboard.readText();
+    updateTextSize();
+    textInput.focus();
+  } catch {
+    showStatus("自動で読み取れませんでした。入力欄を長押しして貼り付けてください", true);
+    textInput.focus();
+  }
+}
+
+function entrySize(entry) {
+  if (entry.kind === "text") return new Blob([entry.value]).size;
+  if (entry.kind === "image" || entry.kind === "textFile") return entry.value.size;
+  return 0;
+}
+
+function updateTextSize() {
+  const size = new Blob([textInput.value]).size;
+  textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
+  textSize.classList.toggle("over-limit", size > maxBytes);
 }
 
 async function loadItems() {
@@ -170,12 +225,15 @@ function createCard(item) {
   if (item.kind === "image") {
     img.src = item.url;
     img.alt = item.name;
-    img.width = item.width || 320;
-    img.height = item.height || 190;
+    if (item.width && item.height) {
+      img.width = item.width;
+      img.height = item.height;
+    }
     textPreview.hidden = true;
   } else {
     img.remove();
     textPreview.hidden = false;
+    textPreview.textContent = item.snippet || "TXT";
   }
   card.querySelector(".path").textContent = item.path;
   card.querySelector(".metadata").textContent =
@@ -235,4 +293,15 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-loadItems();
+async function initialize() {
+  try {
+    const config = await request("/api/config");
+    maxBytes = config.maxBytes;
+    updateTextSize();
+  } catch (error) {
+    showStatus(error.message, true);
+  }
+  await loadItems();
+}
+
+initialize();

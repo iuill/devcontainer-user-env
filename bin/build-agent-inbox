@@ -23,6 +23,14 @@ docker run --rm \
     --mount "type=bind,source=${repository_root},target=/src" \
     --workdir /src \
     "$go_image" \
-    sh -eu -c 'go test ./agent-inbox && go vet ./agent-inbox && test -z "$(gofmt -l agent-inbox)" && go build -trimpath -ldflags="-s -w" -o build/agent-inbox ./agent-inbox'
+    sh -eu -c 'go test ./agent-inbox
+go vet ./agent-inbox
+unformatted="$(gofmt -l agent-inbox)"
+if [ -n "$unformatted" ]; then
+    printf "Unformatted files:\n%s\n" "$unformatted" >&2
+    gofmt -d agent-inbox >&2
+    exit 1
+fi
+go build -trimpath -ldflags="-s -w" -o build/agent-inbox ./agent-inbox'
 
 printf 'Built %s\n' "${repository_root}/build/agent-inbox"

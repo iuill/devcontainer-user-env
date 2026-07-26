@@ -57,7 +57,16 @@ dotfiles_repository="${DC_DOTFILES_REPOSITORY:-}"
 agent_inbox_enabled="${DC_AGENT_INBOX:-1}"
 agent_inbox_dir="${DC_AGENT_INBOX_DIR:-${HOME}/agent-inbox}"
 
-if [[ $agent_inbox_enabled != 0 ]]; then
+case "${agent_inbox_enabled,,}" in
+    0|false|no|off)
+        agent_inbox_enabled=false
+        ;;
+    *)
+        agent_inbox_enabled=true
+        ;;
+esac
+
+if [[ $agent_inbox_enabled == true ]]; then
     if [[ $agent_inbox_dir != /* || $agent_inbox_dir == *','* || $agent_inbox_dir == *$'\n'* ]]; then
         printf 'dc: DC_AGENT_INBOX_DIR must be an absolute path without commas or newlines\n' >&2
         exit 2
@@ -146,7 +155,7 @@ up_args=(
     --dotfiles-install-command install-devcontainer.sh
 )
 
-if [[ $agent_inbox_enabled != 0 ]]; then
+if [[ $agent_inbox_enabled == true ]]; then
     up_args+=(--mount "type=bind,source=${agent_inbox_dir},target=/inbox")
 fi
 
