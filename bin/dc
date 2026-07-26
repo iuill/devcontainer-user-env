@@ -19,6 +19,7 @@ Examples:
 Environment:
   DC_WORKSPACE_FOLDER       Workspace to open (default: current directory)
   DC_DOTFILES_REPOSITORY   Override the dotfiles Git repository URL
+  DC_SCREENSHOTS_DIR        Screenshot directory (default: $HOME/screenshots)
 EOF
 }
 
@@ -52,6 +53,16 @@ fi
 repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
 workspace="${DC_WORKSPACE_FOLDER:-$PWD}"
 dotfiles_repository="${DC_DOTFILES_REPOSITORY:-}"
+screenshots_dir="${DC_SCREENSHOTS_DIR:-${HOME}/screenshots}"
+
+if [[ $screenshots_dir != /* || $screenshots_dir == *','* || $screenshots_dir == *$'\n'* ]]; then
+    printf 'dc: DC_SCREENSHOTS_DIR must be an absolute path without commas or newlines\n' >&2
+    exit 2
+fi
+if ! mkdir -p "$screenshots_dir"; then
+    printf 'dc: could not create screenshot directory: %s\n' "$screenshots_dir" >&2
+    exit 2
+fi
 
 if [[ -z "$dotfiles_repository" ]]; then
     dotfiles_repository="$(
@@ -129,6 +140,7 @@ up_args=(
     --workspace-folder "$workspace"
     --dotfiles-repository "$dotfiles_repository"
     --dotfiles-install-command install-devcontainer.sh
+    --mount "type=bind,source=${screenshots_dir},target=/screenshots"
 )
 
 if [[ $rebuild_requested == true ]]; then

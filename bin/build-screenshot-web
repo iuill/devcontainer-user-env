@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -eu
+
+command -v docker >/dev/null 2>&1 || {
+    printf 'build-screenshot-web: docker was not found in PATH\n' >&2
+    exit 127
+}
+
+script_path="$(readlink -f "${BASH_SOURCE[0]}")"
+repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
+go_image="${SCREENSHOT_WEB_GO_IMAGE:-golang:1.26-alpine}"
+
+mkdir -p "${repository_root}/build"
+
+docker run --rm \
+    --network none \
+    --user "$(id -u):$(id -g)" \
+    --env CGO_ENABLED=0 \
+    --env GOCACHE=/tmp/go-build \
+    --env GOMODCACHE=/tmp/go-mod \
+    --env GOTOOLCHAIN=local \
+    --mount "type=bind,source=${repository_root},target=/src" \
+    --workdir /src \
+    "$go_image" \
+    sh -eu -c 'go test ./screenshot-web && go build -trimpath -ldflags="-s -w" -o build/screenshot-web ./screenshot-web'
+
+printf 'Built %s\n' "${repository_root}/build/screenshot-web"
