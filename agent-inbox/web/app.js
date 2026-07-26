@@ -26,7 +26,7 @@ chooseButton.addEventListener("click", () => fileInput.click());
 sendTextButton.addEventListener("click", uploadTextInput);
 clipboardButton.addEventListener("click", pasteClipboardText);
 document.querySelector("#saved-close-button").addEventListener("click", () => {
-  savedItem.hidden = true;
+  hideSavedItem();
 });
 savedHostCopyButton.addEventListener("click", () =>
   copyPath(savedHostCopyButton, savedPaths.host, "HOST パス"));
@@ -117,7 +117,6 @@ async function uploadFiles(files) {
 }
 
 async function uploadEntries(entries) {
-  savedItem.hidden = true;
   if (uploading) {
     showStatus("現在の保存が完了してからもう一度お試しください", true);
     return 0;
@@ -132,6 +131,7 @@ async function uploadEntries(entries) {
     return 0;
   }
 
+  hideSavedItem();
   uploading = true;
   chooseButton.disabled = true;
   sendTextButton.disabled = true;
@@ -294,7 +294,7 @@ function createCard(item) {
       card.remove();
       emptyState.hidden = gallery.children.length !== 0;
       if (savedPaths.host === item.hostPath || savedPaths.dev === item.containerPath) {
-        savedItem.hidden = true;
+        hideSavedItem();
       }
       showStatus("共有ファイルを削除しました");
     } catch (error) {
@@ -361,6 +361,11 @@ function showSavedItem(item, count) {
   savedHostCopyButton.textContent = "HOST パス";
   savedDevCopyButton.textContent = "DEV パス";
   savedItem.hidden = false;
+}
+
+function hideSavedItem() {
+  savedItem.hidden = true;
+  savedPaths = {host: "", dev: ""};
 }
 
 function formatBytes(bytes) {
