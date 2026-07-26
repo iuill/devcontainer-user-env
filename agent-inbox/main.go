@@ -59,16 +59,18 @@ type app struct {
 }
 
 type itemInfo struct {
-	Name    string    `json:"name"`
-	Kind    string    `json:"kind"`
-	Path    string    `json:"path"`
-	URL     string    `json:"url"`
-	Size    int64     `json:"size"`
-	Time    string    `json:"time"`
-	Width   int       `json:"width,omitempty"`
-	Height  int       `json:"height,omitempty"`
-	Snippet string    `json:"snippet,omitempty"`
-	modTime time.Time `json:"-"`
+	Name          string    `json:"name"`
+	Kind          string    `json:"kind"`
+	Path          string    `json:"path"`
+	HostPath      string    `json:"hostPath"`
+	ContainerPath string    `json:"containerPath"`
+	URL           string    `json:"url"`
+	Size          int64     `json:"size"`
+	Time          string    `json:"time"`
+	Width         int       `json:"width,omitempty"`
+	Height        int       `json:"height,omitempty"`
+	Snippet       string    `json:"snippet,omitempty"`
+	modTime       time.Time `json:"-"`
 }
 
 type metadataCache struct {
@@ -590,13 +592,15 @@ func (a *app) info(name string, info os.FileInfo) itemInfo {
 		kind = "text"
 	}
 	return itemInfo{
-		Name:    name,
-		Kind:    kind,
-		Path:    a.containerPath + "/" + name,
-		URL:     "/files/" + name,
-		Size:    info.Size(),
-		Time:    info.ModTime().UTC().Format(time.RFC3339),
-		modTime: info.ModTime(),
+		Name:          name,
+		Kind:          kind,
+		Path:          a.containerPath + "/" + name,
+		HostPath:      filepath.Join(a.dir, name),
+		ContainerPath: a.containerPath + "/" + name,
+		URL:           "/files/" + name,
+		Size:          info.Size(),
+		Time:          info.ModTime().UTC().Format(time.RFC3339),
+		modTime:       info.ModTime(),
 	}
 }
 

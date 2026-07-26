@@ -12,8 +12,10 @@ const textSize = document.querySelector("#text-size");
 const sendTextButton = document.querySelector("#send-text-button");
 const clipboardButton = document.querySelector("#clipboard-button");
 const savedItem = document.querySelector("#saved-item");
-const savedPath = document.querySelector("#saved-path");
-const savedCopyButton = document.querySelector("#saved-copy-button");
+const savedHostPath = document.querySelector("#saved-host-path");
+const savedDevPath = document.querySelector("#saved-dev-path");
+const savedHostCopyButton = document.querySelector("#saved-host-copy-button");
+const savedDevCopyButton = document.querySelector("#saved-dev-copy-button");
 let uploading = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
@@ -24,15 +26,10 @@ clipboardButton.addEventListener("click", pasteClipboardText);
 document.querySelector("#saved-close-button").addEventListener("click", () => {
   savedItem.hidden = true;
 });
-savedCopyButton.addEventListener("click", async () => {
-  try {
-    await copyText(savedPath.textContent);
-    savedCopyButton.textContent = "コピーしました";
-    setTimeout(() => { savedCopyButton.textContent = "パスをコピー"; }, 1200);
-  } catch {
-    window.prompt("次のパスをコピーしてください", savedPath.textContent);
-  }
-});
+savedHostCopyButton.addEventListener("click", () =>
+  copyPath(savedHostCopyButton, savedHostPath.textContent, "HOST パス"));
+savedDevCopyButton.addEventListener("click", () =>
+  copyPath(savedDevCopyButton, savedDevPath.textContent, "DEV パス"));
 textInput.addEventListener("input", updateTextSize);
 document.querySelector("#refresh-button").addEventListener("click", loadItems);
 document.querySelector("#close-preview").addEventListener("click", closePreview);
@@ -265,7 +262,8 @@ function createCard(item) {
     card.querySelector(".preview").setAttribute("aria-label", `${item.name} を開く`);
     card.querySelector(".preview").setAttribute("aria-describedby", textPreview.id);
   }
-  card.querySelector(".path").textContent = item.path;
+  card.querySelector(".host-path").textContent = `HOST ${item.hostPath}`;
+  card.querySelector(".dev-path").textContent = `DEV  ${item.containerPath}`;
   card.querySelector(".metadata").textContent =
     `${item.kind === "text" ? "TEXT" : "IMAGE"} · ${formatBytes(item.size)} · ${new Date(item.time).toLocaleString()}`;
 
@@ -277,16 +275,12 @@ function createCard(item) {
     previewImage.src = item.url;
     dialog.showModal();
   });
-  card.querySelector(".copy-button").addEventListener("click", async (event) => {
-    try {
-      await copyText(item.path);
-      const button = event.currentTarget;
-      button.textContent = "コピーしました";
-      setTimeout(() => { button.textContent = "パスをコピー"; }, 1200);
-    } catch {
-      window.prompt("次のパスをコピーしてください", item.path);
-    }
-  });
+  const hostCopyButton = card.querySelector(".host-copy-button");
+  const devCopyButton = card.querySelector(".dev-copy-button");
+  hostCopyButton.addEventListener("click", () =>
+    copyPath(hostCopyButton, item.hostPath, "HOST パス"));
+  devCopyButton.addEventListener("click", () =>
+    copyPath(devCopyButton, item.containerPath, "DEV パス"));
   card.querySelector(".delete-button").addEventListener("click", async () => {
     if (!confirm(`${item.name} を削除しますか？`)) return;
     try {
@@ -332,6 +326,16 @@ async function copyText(text) {
   if (!copied) throw new Error("clipboard copy failed");
 }
 
+async function copyPath(button, path, label) {
+  try {
+    await copyText(path);
+    button.textContent = "コピーしました";
+    setTimeout(() => { button.textContent = label; }, 1200);
+  } catch {
+    window.prompt("次のパスをコピーしてください", path);
+  }
+}
+
 function showStatus(message, isError = false) {
   statusElement.textContent = message;
   statusElement.classList.toggle("error", isError);
@@ -343,8 +347,10 @@ function showStatus(message, isError = false) {
 function showSavedItem(item, count) {
   savedItem.querySelector("span").textContent =
     count > 1 ? `${count}件保存しました（最後のファイル）` : "保存しました";
-  savedPath.textContent = item.path;
-  savedCopyButton.textContent = "パスをコピー";
+  savedHostPath.textContent = `HOST ${item.hostPath}`;
+  savedDevPath.textContent = `DEV  ${item.containerPath}`;
+  savedHostCopyButton.textContent = "HOST パス";
+  savedDevCopyButton.textContent = "DEV パス";
   savedItem.hidden = false;
 }
 

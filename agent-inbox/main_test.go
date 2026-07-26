@@ -100,6 +100,10 @@ func TestUploadListAndDeleteImage(t *testing.T) {
 	if created.Path != "/inbox/"+created.Name || created.Kind != "image" {
 		t.Fatalf("unexpected item: %#v", created)
 	}
+	if created.HostPath != filepath.Join(dir, created.Name) ||
+		created.ContainerPath != "/inbox/"+created.Name {
+		t.Fatalf("unexpected paths: %#v", created)
+	}
 	if created.Width != 2 || created.Height != 2 {
 		t.Fatalf("unexpected dimensions: %dx%d", created.Width, created.Height)
 	}

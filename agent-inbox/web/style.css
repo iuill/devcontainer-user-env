@@ -199,30 +199,48 @@ kbd {
   display: none;
 }
 
-.saved-item > div {
+.saved-details {
   min-width: 0;
+  flex: 1;
 }
 
-.saved-item span,
-.saved-item code {
+.saved-details span,
+.saved-details code {
   display: block;
 }
 
-.saved-item span {
+.saved-details span {
   margin-bottom: 5px;
   color: #78dca9;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
-.saved-item code {
+.saved-details code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.saved-item .primary {
+.saved-actions {
+  display: flex;
   flex: 0 0 auto;
+  gap: 8px;
+}
+
+.saved-actions button {
+  flex: 0 0 auto;
+}
+
+.paths code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paths code + code {
+  margin-top: 4px;
 }
 
 .saved-close {
@@ -446,5 +464,13 @@ dialog img {
     max-width: none;
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .saved-actions {
+    width: 100%;
+  }
+
+  .saved-actions button {
+    flex: 1;
   }
 }

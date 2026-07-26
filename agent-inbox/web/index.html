@@ -42,11 +42,15 @@
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
     <aside id="saved-item" class="saved-item" aria-live="polite" hidden>
-      <div>
+      <div class="saved-details">
         <span>保存しました</span>
-        <code id="saved-path"></code>
+        <code id="saved-host-path"></code>
+        <code id="saved-dev-path"></code>
       </div>
-      <button id="saved-copy-button" class="primary" type="button">パスをコピー</button>
+      <div class="saved-actions">
+        <button id="saved-host-copy-button" class="primary" type="button">HOST パス</button>
+        <button id="saved-dev-copy-button" type="button">DEV パス</button>
+      </div>
       <button id="saved-close-button" class="saved-close" type="button" aria-label="閉じる">×</button>
     </aside>
 
@@ -67,10 +71,14 @@
         <span class="text-preview"></span>
       </button>
       <div class="card-body">
-        <code class="path"></code>
+        <div class="paths">
+          <code class="host-path"></code>
+          <code class="dev-path"></code>
+        </div>
         <div class="metadata"></div>
         <div class="actions">
-          <button class="copy-button primary" type="button">パスをコピー</button>
+          <button class="host-copy-button primary" type="button">HOST パス</button>
+          <button class="dev-copy-button" type="button">DEV パス</button>
           <button class="delete-button danger" type="button">削除</button>
         </div>
       </div>
