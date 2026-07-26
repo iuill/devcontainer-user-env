@@ -11,6 +11,9 @@ const textInput = document.querySelector("#text-input");
 const textSize = document.querySelector("#text-size");
 const sendTextButton = document.querySelector("#send-text-button");
 const clipboardButton = document.querySelector("#clipboard-button");
+const savedItem = document.querySelector("#saved-item");
+const savedPath = document.querySelector("#saved-path");
+const savedCopyButton = document.querySelector("#saved-copy-button");
 let uploading = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
@@ -18,6 +21,18 @@ let maxBytes = 20 * 1024 * 1024;
 chooseButton.addEventListener("click", () => fileInput.click());
 sendTextButton.addEventListener("click", uploadTextInput);
 clipboardButton.addEventListener("click", pasteClipboardText);
+document.querySelector("#saved-close-button").addEventListener("click", () => {
+  savedItem.hidden = true;
+});
+savedCopyButton.addEventListener("click", async () => {
+  try {
+    await copyText(savedPath.textContent);
+    savedCopyButton.textContent = "コピーしました";
+    setTimeout(() => { savedCopyButton.textContent = "パスをコピー"; }, 1200);
+  } catch {
+    window.prompt("次のパスをコピーしてください", savedPath.textContent);
+  }
+});
 textInput.addEventListener("input", updateTextSize);
 document.querySelector("#refresh-button").addEventListener("click", loadItems);
 document.querySelector("#close-preview").addEventListener("click", closePreview);
@@ -146,7 +161,11 @@ async function uploadEntries(entries) {
   } else {
     showStatus(`${succeeded}件のファイルを保存しました`);
   }
-  if (succeeded) await loadItems();
+  if (succeeded) {
+    const saved = results.filter((result) => result.status === "fulfilled");
+    showSavedItem(saved[saved.length - 1].value, succeeded);
+    await loadItems();
+  }
   return succeeded;
 }
 
@@ -319,6 +338,14 @@ function showStatus(message, isError = false) {
   statusElement.classList.add("visible");
   clearTimeout(showStatus.timeout);
   showStatus.timeout = setTimeout(() => statusElement.classList.remove("visible"), 4500);
+}
+
+function showSavedItem(item, count) {
+  savedItem.querySelector("span").textContent =
+    count > 1 ? `${count}件保存しました（最後のファイル）` : "保存しました";
+  savedPath.textContent = item.path;
+  savedCopyButton.textContent = "パスをコピー";
+  savedItem.hidden = false;
 }
 
 function formatBytes(bytes) {
