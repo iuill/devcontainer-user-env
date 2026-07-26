@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
-set -eu
+set -euo pipefail
 
 command -v docker >/dev/null 2>&1 || {
-    printf 'build-screenshot-web: docker was not found in PATH\n' >&2
+    printf 'build-agent-inbox: docker was not found in PATH\n' >&2
     exit 127
 }
 
 script_path="$(readlink -f "${BASH_SOURCE[0]}")"
 repository_root="$(cd "$(dirname "$script_path")/.." && pwd)"
-go_image="${SCREENSHOT_WEB_GO_IMAGE:-golang:1.26-alpine}"
+go_image="${AGENT_INBOX_GO_IMAGE:-golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2}"
 
 mkdir -p "${repository_root}/build"
 
@@ -23,6 +23,6 @@ docker run --rm \
     --mount "type=bind,source=${repository_root},target=/src" \
     --workdir /src \
     "$go_image" \
-    sh -eu -c 'go test ./screenshot-web && go build -trimpath -ldflags="-s -w" -o build/screenshot-web ./screenshot-web'
+    sh -eu -c 'go test ./agent-inbox && go vet ./agent-inbox && test -z "$(gofmt -l agent-inbox)" && go build -trimpath -ldflags="-s -w" -o build/agent-inbox ./agent-inbox'
 
-printf 'Built %s\n' "${repository_root}/build/screenshot-web"
+printf 'Built %s\n' "${repository_root}/build/agent-inbox"

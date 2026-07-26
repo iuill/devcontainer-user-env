@@ -1,0 +1,31 @@
+name: Agent Inbox
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/agent-inbox.yml"
+      - "agent-inbox/**"
+      - "go.mod"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/agent-inbox.yml"
+      - "agent-inbox/**"
+      - "go.mod"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"

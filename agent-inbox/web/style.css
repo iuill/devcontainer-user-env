@@ -94,6 +94,11 @@ code {
   transform: translateY(-2px);
 }
 
+.drop-zone.busy {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .drop-zone h2 {
   margin: 12px 0 8px;
   font-size: clamp(1.35rem, 3vw, 2rem);
@@ -221,6 +226,22 @@ kbd {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.text-preview {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #58c9f3;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 3.2rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.text-preview[hidden] {
+  display: none;
 }
 
 .card-body {

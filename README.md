@@ -7,7 +7,7 @@ Dev Containerをターミナル中心で利用するための個人用環境で�
 - `dc bash` で現在のリポジトリのDev Containerに入る
 - `dc codex` や `dc <command>` でDev Container内のツールを実行する
 - `dc rebuild` でDev Containerを再構築する
-- ホストへ貼り付けたスクリーンショットをDev Containerから参照する
+- ホストへ貼り付けた画像や長いテキストをDev Containerから参照する
 - `[HOST]` と `[DEV]` を明確に区別するシェルプロンプト
 - Dev Container CLIのdotfiles機能を利用したインストール
 
@@ -20,7 +20,7 @@ Dev Containerをターミナル中心で利用するための個人用環境で�
 - [Dev Container CLI](https://github.com/devcontainers/cli)
 - Docker、またはDev Container CLIが対応するコンテナランタイム
 - [Starship](https://starship.rs/)（任意）
-- [Tailscale](https://tailscale.com/)（Screenshot WebをTailnetへ公開する場合）
+- [Tailscale](https://tailscale.com/)（Agent InboxをTailnetへ公開する場合）
 
 ## ホストへのインストール
 
@@ -39,8 +39,7 @@ cd ~/.local/share/devcontainer-user-env
 インストーラーは次の処理を行います。
 
 1. `bin/dc` を `~/.local/bin` にシンボリックリンクする
-2. `bin/build-screenshot-web` を `~/.local/bin` にシンボリックリンクする
-3. Bashのプロンプトに黄色い `⚠️ HOST` バッジを表示する
+2. Bashのプロンプトに黄色い `⚠️ HOST` バッジを表示する
 
 ## 使い方
 
@@ -100,11 +99,13 @@ export DC_DOTFILES_REPOSITORY=https://github.com/example/devcontainer-user-env.g
 DC_WORKSPACE_FOLDER=/path/to/project dc bash
 ```
 
-## Screenshot Web
+## Agent Inbox
 
-Screenshot Webは、Windows PCやスマートフォンのブラウザから画像を貼り付け、
-ホストの `~/screenshots` へ保存する小さなWebアプリです。保存した画像は、
-`dc` が起動するすべてのDev Containerから `/screenshots` として参照できます。
+Agent Inboxは、Windows PCやスマートフォンのブラウザから画像や長いテキストを
+貼り付け、ホストの `~/agent-inbox` へ保存する小さなWebアプリです。保存した
+ファイルは、`dc` が起動するすべてのDev Containerから `/inbox` として
+参照できます。チャットへ直接収まらないテキストをファイルとしてAIエージェントへ
+渡す用途にも使えます。
 
 WebアプリはGo標準ライブラリと素のHTML、CSS、JavaScriptだけで構成されています。
 GoのDockerイメージを使って単一バイナリにするため、ホストへGoを
@@ -115,18 +116,18 @@ GoのDockerイメージを使って単一バイナリにするため、ホスト
 Dockerを利用できる状態で、次を実行します。
 
 ```bash
-./install-screenshot-web.sh
+./install-agent-inbox.sh
 ```
 
 このスクリプトは一時コンテナ内でテストとビルドを行い、生成したバイナリと
 systemdユーザーサービスをインストールします。ビルド用コンテナは終了時に
 削除されます。GoのDockerイメージは次回のビルド用にキャッシュされます。
 
-標準では `golang:1.26-alpine` を使います。別のイメージを使う場合は、
-ビルド時に指定できます。
+標準ではダイジェストを固定した `golang:1.26-alpine` を使います。別の
+イメージを使う場合は、ビルド時に指定できます。
 
 ```bash
-SCREENSHOT_WEB_GO_IMAGE=golang:1.26-alpine ./install-screenshot-web.sh
+AGENT_INBOX_GO_IMAGE=golang:1.26-alpine ./install-agent-inbox.sh
 ```
 
 ### 起動とTailnetへの公開
@@ -134,13 +135,13 @@ SCREENSHOT_WEB_GO_IMAGE=golang:1.26-alpine ./install-screenshot-web.sh
 Webアプリを現在のログイン時と今後のログイン時に起動します。
 
 ```bash
-systemctl --user enable --now screenshot-web.service
+systemctl --user enable --now agent-inbox.service
 ```
 
 systemdを使わないLinuxでは、通常のコマンドとして起動できます。
 
 ```bash
-screenshot-web
+agent-inbox
 ```
 
 アプリ自体は `127.0.0.1:3939` だけで待ち受けます。Tailscale Serveを使うと、
@@ -151,9 +152,22 @@ tailscale serve --bg --yes 3939
 tailscale serve status
 ```
 
-表示されたURLをWindows PCやスマートフォンで開き、ページ上で画像を
-貼り付けるか、画像ファイルをドロップします。保存後に表示される
-`/screenshots/<ファイル名>` をAIエージェントへ渡せます。
+表示されたURLをWindows PCやスマートフォンで開き、ページ上で画像または
+テキストを貼り付けます。画像・テキストファイルのドロップにも対応しています。
+保存後に表示される `/inbox/<ファイル名>` をAIエージェントへ渡せます。
+
+Tailscale ServeはTailnet全体へ公開します。Tailnetに他のユーザーや共有ノードが
+存在する場合、そのままでは全員が閲覧・保存・削除できます。アクセスする
+Tailscaleユーザーを限定する場合は、systemdサービスのdrop-inで
+`AGENT_INBOX_ALLOWED_USER` を設定します。
+
+```ini
+[Service]
+Environment=AGENT_INBOX_ALLOWED_USER=you@example.com
+```
+
+Agent Inboxにはインターネット公開用の認証機能がありません。
+**`tailscale funnel` は使用しないでください。**
 
 公開を解除する場合は次を実行します。
 
@@ -163,18 +177,18 @@ tailscale serve reset
 
 ### 保存先とDev Containerへのマウント
 
-ホスト側の標準保存先は `$HOME/screenshots`、Dev Container側は
-`/screenshots` です。ホスト側を変更する場合は、Webアプリの
-`SCREENSHOT_WEB_DIR` と `dc` の `DC_SCREENSHOTS_DIR` に同じ絶対パスを
+ホスト側の標準保存先は `$HOME/agent-inbox`、Dev Container側は
+`/inbox` です。ホスト側を変更する場合は、Webアプリの
+`AGENT_INBOX_DIR` と `dc` の `DC_AGENT_INBOX_DIR` に同じ絶対パスを
 設定してください。
 
 ```bash
-export SCREENSHOT_WEB_DIR=/mnt/data/screenshots
-export DC_SCREENSHOTS_DIR=/mnt/data/screenshots
+export AGENT_INBOX_DIR=/mnt/data/agent-inbox
+export DC_AGENT_INBOX_DIR=/mnt/data/agent-inbox
 ```
 
 systemdサービスで標準以外の場所を使う場合は、サービスのdrop-inで
-`SCREENSHOT_WEB_DIR` と書き込み許可パスを変更する必要があります。
+`AGENT_INBOX_DIR` と `ReadWritePaths` を同じ場所へ変更する必要があります。
 
 すでに起動しているDev Containerへマウントを追加するには、一度再構築します。
 
@@ -183,16 +197,23 @@ dc rebuild
 ```
 
 現在のDev Container CLIの `--mount` にはread-only指定がないため、
-`/screenshots` はコンテナからも書き込み可能です。Web UI以外から画像を
-変更したくない場合は、この制約に注意してください。
+`/inbox` はコンテナからも書き込み可能です。Agent Inboxを使用しない場合や、
+ホストディレクトリを書き込み可能でマウントしたくない場合は無効化できます。
+
+```bash
+export DC_AGENT_INBOX=0
+```
+
+無効化した状態で既存コンテナからマウントを外す場合も `dc rebuild` が必要です。
 
 ### Webアプリの制限
 
-- 保存できる形式はPNG、JPEG、GIF
-- 1ファイルの標準上限は20 MiB
-- 画像の一辺は20,000ピクセルまで
+- 保存できる形式はPNG、JPEG、GIF、UTF-8プレーンテキスト
+- 画像・テキストとも1ファイルの標準上限は20 MiB
+- 画像は一辺20,000ピクセル、総ピクセル数1億まで
 - アプリはユーザーが指定したファイル名を保存先に使用しない
-- 削除できるのは保存ディレクトリ直下の対応画像だけ
+- 削除できるのは保存ディレクトリ直下の対応ファイルだけ
+- 保存領域の自動削除は行わないため、不要なファイルはWeb UIから手動で削除する
 
 ## プロンプトの色
 

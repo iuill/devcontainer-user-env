@@ -4,43 +4,44 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Screenshot Web</title>
+  <title>Agent Inbox</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main>
     <header>
       <div>
-        <p class="eyebrow">DEV CONTAINER INBOX</p>
-        <h1>Screenshot Web</h1>
-        <p class="lead">スクリーンショットを貼り付けるだけ。保存した画像はDev Containerの <code>/screenshots</code> に届きます。</p>
+        <p class="eyebrow">DEV CONTAINER DROP ZONE</p>
+        <h1>Agent Inbox</h1>
+        <p class="lead">画像や長いテキストを貼り付けるだけ。保存したファイルはDev Containerの <code>/inbox</code> に届きます。</p>
       </div>
       <button id="choose-button" class="secondary" type="button">画像を選択</button>
-      <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif" multiple hidden>
+      <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,text/plain,.txt" multiple hidden>
     </header>
 
-    <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="画像の貼り付けまたはドロップ領域">
+    <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="画像やテキストの貼り付けまたはドロップ領域">
       <div class="paste-icon" aria-hidden="true">⌘</div>
       <h2><kbd>Ctrl</kbd> + <kbd>V</kbd> で貼り付け</h2>
-      <p>または画像をここへドロップ</p>
+      <p>または画像・テキストファイルをここへドロップ</p>
     </section>
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
     <section class="library">
       <div class="section-heading">
-        <h2>最近の画像</h2>
+        <h2>最近の共有ファイル</h2>
         <button id="refresh-button" class="text-button" type="button">更新</button>
       </div>
       <div id="gallery" class="gallery"></div>
-      <p id="empty-state" class="empty-state" hidden>まだ画像がありません。</p>
+      <p id="empty-state" class="empty-state" hidden>まだ共有ファイルがありません。</p>
     </section>
   </main>
 
   <template id="image-card-template">
     <article class="card">
-      <button class="preview" type="button" aria-label="画像を拡大">
+      <button class="preview" type="button" aria-label="共有ファイルを開く">
         <img alt="" loading="lazy">
+        <span class="text-preview" aria-hidden="true">TXT</span>
       </button>
       <div class="card-body">
         <code class="path"></code>
@@ -55,7 +56,7 @@
 
   <dialog id="preview-dialog">
     <button id="close-preview" class="dialog-close" type="button" aria-label="閉じる">×</button>
-    <img id="preview-image" alt="スクリーンショットの拡大表示">
+    <img id="preview-image" alt="画像の拡大表示">
   </dialog>
 
   <script src="/app.js" defer></script>

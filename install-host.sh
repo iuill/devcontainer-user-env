@@ -9,8 +9,6 @@ source_line="source \"${repository_root}/shell/host.bash\""
 
 mkdir -p "$bin_directory"
 ln -sfn "${repository_root}/bin/dc" "${bin_directory}/dc"
-ln -sfn "${repository_root}/bin/build-screenshot-web" \
-    "${bin_directory}/build-screenshot-web"
 
 touch "$bashrc"
 if ! grep -qxF "$source_line" "$bashrc"; then
@@ -18,6 +16,5 @@ if ! grep -qxF "$source_line" "$bashrc"; then
 fi
 
 printf 'Installed dc to %s\n' "${bin_directory}/dc"
-printf 'Installed build-screenshot-web to %s\n' "${bin_directory}/build-screenshot-web"
 printf 'Installed the HOST prompt in %s\n' "$bashrc"
 printf 'Open a new shell or run: source %q\n' "$bashrc"
