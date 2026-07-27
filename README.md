@@ -99,6 +99,45 @@ export DC_DOTFILES_REPOSITORY=https://github.com/example/devcontainer-user-env.g
 DC_WORKSPACE_FOLDER=/path/to/project dc bash
 ```
 
+## Windows TerminalでCodex CLIへ改行を送る
+
+Codex CLIでは `Shift+Enter` が改行に割り当てられていますが、端末が修飾された
+Enterを区別して送信しない環境では通常のEnterとして扱われます。Windows Terminal
+からPowerShellとSSHを経由してCodex CLIを使う場合は、Windows Terminal側で
+`Shift+Enter` をLFとして送信します。
+
+Windows Terminalで `Ctrl+,` を押して設定を開き、左下の「JSON ファイルを開く」
+から `settings.json` を編集します。既存の `actions` と `keybindings` 配列へ、
+それぞれ次の要素を追加します。
+
+```json
+{
+  "actions": [
+    {
+      "command": {
+        "action": "sendInput",
+        "input": "\u000A"
+      },
+      "id": "User.sendLF"
+    }
+  ],
+  "keybindings": [
+    {
+      "id": "User.sendLF",
+      "keys": "shift+enter"
+    }
+  ]
+}
+```
+
+これにより、`Shift+Enter` はSSH越しでもCodex CLIの `Ctrl+J` と同等の改行として
+扱われます。Codex CLIで `/keymap` を開き、`Debug` の `Inspect keypresses` を
+使うと、端末から受信したキーを確認できます。
+
+Windows Terminalの `sendInput` については
+[Windows Terminal Actions](https://learn.microsoft.com/windows/terminal/customize-settings/actions#send-input)
+を参照してください。
+
 ## Agent Inbox
 
 Agent Inboxは、Windows PCやスマートフォンのブラウザから画像や長いテキストを
