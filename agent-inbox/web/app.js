@@ -17,6 +17,7 @@ const savedDevPath = document.querySelector("#saved-dev-path");
 const savedMessage = document.querySelector("#saved-message");
 const savedHostCopyButton = document.querySelector("#saved-host-copy-button");
 const savedDevCopyButton = document.querySelector("#saved-dev-copy-button");
+const textExtensions = new Set([".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch"]);
 let uploading = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
@@ -108,8 +109,9 @@ async function request(url, options = {}) {
 async function uploadFiles(files) {
   const entries = files.map((file) => {
     if (file.type.startsWith("image/")) return {kind: "image", value: file};
-    if (file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt")) {
-      return {kind: "textFile", value: file};
+    const extension = fileExtension(file.name);
+    if (textExtensions.has(extension) || (file.type === "text/plain" && !extension)) {
+      return {kind: "textFile", value: file, extension: extension || ".txt"};
     }
     return {kind: "unsupported", value: file.name};
   });
@@ -185,6 +187,7 @@ function uploadEntry(entry) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "X-Agent-Inbox": "1",
+        ...(entry.kind === "textFile" ? {"X-Agent-Inbox-Extension": entry.extension} : {}),
       },
       body: entry.value,
     });
@@ -220,6 +223,11 @@ function entrySize(entry) {
   if (entry.kind === "text") return new Blob([entry.value]).size;
   if (entry.kind === "image" || entry.kind === "textFile") return entry.value.size;
   return 0;
+}
+
+function fileExtension(name) {
+  const match = name.toLowerCase().match(/(\.[^.]+)$/);
+  return match ? match[1] : "";
 }
 
 function updateTextSize() {

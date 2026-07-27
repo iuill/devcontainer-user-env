@@ -152,6 +152,29 @@ func TestUploadText(t *testing.T) {
 	}
 }
 
+func TestUploadTextPreservesAllowedExtension(t *testing.T) {
+	for _, extension := range []string{".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch"} {
+		t.Run(extension, func(t *testing.T) {
+			app := testApp(t.TempDir(), defaultMaxBytes)
+			app.random = bytes.NewReader([]byte{1, 2, 3, 4})
+			request := textUploadRequest("UTF-8 text")
+			request.Header.Set(textExtensionHeader, extension)
+			response := httptest.NewRecorder()
+			app.routes().ServeHTTP(response, request)
+			if response.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+			var created itemInfo
+			if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+				t.Fatal(err)
+			}
+			if filepath.Ext(created.Name) != extension || created.Kind != "text" {
+				t.Fatalf("unexpected item: %#v", created)
+			}
+		})
+	}
+}
+
 func TestUploadTextValidation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -178,6 +201,14 @@ func TestUploadTextValidation(t *testing.T) {
 				t.Fatalf("status = %d, want %d, body = %s", response.Code, test.wantStatus, response.Body.String())
 			}
 		})
+	}
+
+	request := textUploadRequest("text")
+	request.Header.Set(textExtensionHeader, ".html")
+	response := httptest.NewRecorder()
+	testApp(t.TempDir(), defaultMaxBytes).routes().ServeHTTP(response, request)
+	if response.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("unsupported extension status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -313,15 +344,24 @@ func writePNGChunk(writer io.Writer, kind string, payload []byte) {
 
 func TestValidStoredName(t *testing.T) {
 	tests := map[string]bool{
-		"image.png": true,
-		"image.PNG": true,
-		"note.txt":  true,
-		".png":      true,
-		"..":        false,
-		"a/b.png":   false,
-		`a\b.png`:   false,
-		"image.svg": false,
-		"noext":     false,
+		"image.png":   true,
+		"image.PNG":   true,
+		"note.txt":    true,
+		"note.md":     true,
+		"data.json":   true,
+		"config.yaml": true,
+		"config.yml":  true,
+		"table.csv":   true,
+		"output.log":  true,
+		"change.diff": true,
+		"fix.patch":   true,
+		".png":        true,
+		"..":          false,
+		"a/b.png":     false,
+		`a\b.png`:     false,
+		"image.svg":   false,
+		"page.html":   false,
+		"noext":       false,
 	}
 	for name, want := range tests {
 		if got := validStoredName(name); got != want {
@@ -452,6 +492,21 @@ func TestFilesAreServedWithSecurityAndCacheHeaders(t *testing.T) {
 	}
 	if !strings.Contains(response.Header().Get("Cache-Control"), "immutable") {
 		t.Fatal("immutable cache header is missing")
+	}
+}
+
+func TestTextFilesAreServedAsPlainText(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "test.json"), []byte(`{"safe":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	testApp(dir, defaultMaxBytes).routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/files/test.json", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/plain; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", contentType)
 	}
 }
 
