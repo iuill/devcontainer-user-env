@@ -39,6 +39,7 @@ const (
 	maxDimension         = 20000
 	maxPixels            = 100_000_000
 	mutationHeader       = "X-Agent-Inbox"
+	textExtensionHeader  = "X-Agent-Inbox-Extension"
 	shutdownTimeout      = 30 * time.Second
 	uploadTimeout        = 10 * time.Minute
 	textSnippetRunes     = 180
@@ -203,6 +204,9 @@ func (a *app) serveItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	if isTextExtension(filepath.Ext(name)) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	http.ServeContent(w, r, name, info.ModTime(), file)
 }
@@ -333,8 +337,13 @@ func (a *app) uploadText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnsupportedMediaType, "UTF-8のプレーンテキストだけを保存できます")
 		return
 	}
+	extension, ok := normalizeTextExtension(r.Header.Get(textExtensionHeader))
+	if !ok {
+		writeError(w, http.StatusUnsupportedMediaType, "対応していないテキストファイル形式です")
+		return
+	}
 
-	item, err := a.save(".txt", data)
+	item, err := a.save(extension, data)
 	if err != nil {
 		log.Printf("save text: %v", err)
 		writeError(w, http.StatusInternalServerError, "テキストを保存できませんでした")
@@ -582,7 +591,24 @@ func validStoredName(name string) bool {
 		return false
 	}
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".png", ".jpg", ".gif", ".txt":
+	case ".png", ".jpg", ".gif":
+		return true
+	default:
+		return isTextExtension(filepath.Ext(name))
+	}
+}
+
+func normalizeTextExtension(value string) (string, bool) {
+	if strings.TrimSpace(value) == "" {
+		return ".txt", true
+	}
+	extension := strings.ToLower(strings.TrimSpace(value))
+	return extension, isTextExtension(extension)
+}
+
+func isTextExtension(extension string) bool {
+	switch strings.ToLower(extension) {
+	case ".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch":
 		return true
 	default:
 		return false
@@ -591,7 +617,7 @@ func validStoredName(name string) bool {
 
 func (a *app) info(name string, info os.FileInfo) itemInfo {
 	kind := "image"
-	if strings.EqualFold(filepath.Ext(name), ".txt") {
+	if isTextExtension(filepath.Ext(name)) {
 		kind = "text"
 	}
 	return itemInfo{
