@@ -177,6 +177,18 @@ remote_env_args=(
     --remote-env DEVCONTAINER_CONTEXT=1
 )
 
+if [[ -n ${TERM:-} && ${TERM:-} != dumb ]]; then
+    remote_env_args+=(
+        --remote-env "TERM=${TERM}"
+    )
+fi
+
+if [[ -n ${COLORTERM:-} ]]; then
+    remote_env_args+=(
+        --remote-env "COLORTERM=${COLORTERM}"
+    )
+fi
+
 if [[ ${exec_args[0]} == codex ]]; then
     remote_env_args+=(
         --remote-env HERDR_AGENT=codex

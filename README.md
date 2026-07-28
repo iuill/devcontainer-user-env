@@ -58,6 +58,9 @@ dc rebuild claude
 `HERDR_AGENT=codex` が設定されます。ホスト側で動くHerdrはこの値を使って、
 Dev Containerの背後で動くCodexを検出できます。
 
+ホスト側で `TERM` と `COLORTERM` が設定されている場合は、Dev Containerにも
+引き継ぎます。CodexなどのTUIはこれらを使って端末の色表現能力を判定します。
+
 `dc rebuild` は既存のDev Containerを削除して再構築した後、対話Bashを
 起動します。コマンドを続けて指定すると、対話Bashの代わりにそのコマンドを
 実行します。
