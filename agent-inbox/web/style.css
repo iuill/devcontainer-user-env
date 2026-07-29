@@ -156,6 +156,23 @@ kbd {
   color: #ff9bab;
 }
 
+.danger-outline {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid #63313b;
+  border-radius: 10px;
+  background: transparent;
+  color: #ff9bab;
+  font-weight: 700;
+}
+
+.danger:disabled,
+.danger-outline:disabled,
+.text-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .text-button {
   border: 0;
   background: transparent;
@@ -315,6 +332,18 @@ kbd {
   margin: 0;
 }
 
+.library-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.selection-status {
+  margin: -8px 0 16px;
+  color: #9ba8b4;
+  font-size: 0.82rem;
+}
+
 .gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -322,10 +351,43 @@ kbd {
 }
 
 .card {
+  position: relative;
   overflow: hidden;
   border: 1px solid #202b34;
   border-radius: 16px;
   background: #111820;
+  transition: border-color 160ms, box-shadow 160ms;
+}
+
+.card.selected {
+  border-color: #58c9f3;
+  box-shadow: 0 0 0 1px #58c9f3;
+}
+
+.select-item {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid #42515c;
+  border-radius: 9px;
+  background: rgba(11, 15, 20, 0.9);
+  color: #e8edf2;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  backdrop-filter: blur(8px);
+}
+
+.select-item input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  accent-color: #58c9f3;
 }
 
 .preview {
@@ -450,6 +512,20 @@ dialog img {
   header .secondary {
     width: 100%;
     margin-top: 24px;
+  }
+
+  .library .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .library-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .library-actions button {
+    min-width: 0;
   }
 
   .drop-zone {
