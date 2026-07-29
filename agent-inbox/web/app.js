@@ -264,6 +264,7 @@ async function loadItems() {
     emptyState.hidden = items.length !== 0;
     for (const item of items) gallery.append(createCard(item));
     updateSelectionControls();
+    return true;
   } catch (error) {
     itemsByName.clear();
     selectedNames.clear();
@@ -272,6 +273,7 @@ async function loadItems() {
     emptyState.hidden = false;
     updateSelectionControls();
     showStatus(error.message, true);
+    return false;
   }
 }
 
@@ -405,20 +407,21 @@ async function deleteItems(names, confirmation) {
     selectedNames.delete(name);
     gallery.querySelector(`[data-name="${CSS.escape(name)}"]`)?.remove();
   }
-  deleting = false;
-  emptyState.hidden = itemsByName.size !== 0;
-  updateSelectionControls();
 
   if (failedNames.length) {
     for (const name of failedNames) selectedNames.add(name);
-    for (const card of gallery.children) {
-      const checked = selectedNames.has(card.dataset.name);
-      card.querySelector(".select-checkbox").checked = checked;
-      card.classList.toggle("selected", checked);
-    }
+    const synchronized = await loadItems();
+    deleting = false;
     updateSelectionControls();
-    showStatus(`${deletedNames.length}件を削除、${failedNames.length}件の削除に失敗しました`, true);
+    if (synchronized) {
+      showStatus(`${deletedNames.length}件を削除、${failedNames.length}件の削除に失敗しました`, true);
+    } else {
+      showStatus(`${deletedNames.length}件を削除しましたが、最新の一覧を読み込めませんでした`, true);
+    }
   } else {
+    deleting = false;
+    emptyState.hidden = itemsByName.size !== 0;
+    updateSelectionControls();
     showStatus(`${deletedNames.length}件の共有ファイルを削除しました`);
   }
 }
