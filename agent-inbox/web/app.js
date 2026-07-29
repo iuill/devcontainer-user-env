@@ -17,11 +17,19 @@ const savedDevPath = document.querySelector("#saved-dev-path");
 const savedMessage = document.querySelector("#saved-message");
 const savedHostCopyButton = document.querySelector("#saved-host-copy-button");
 const savedDevCopyButton = document.querySelector("#saved-dev-copy-button");
+const selectAllButton = document.querySelector("#select-all-button");
+const deleteSelectedButton = document.querySelector("#delete-selected-button");
+const deleteAllButton = document.querySelector("#delete-all-button");
+const selectionStatus = document.querySelector("#selection-status");
+const refreshButton = document.querySelector("#refresh-button");
 const textExtensions = new Set([".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch"]);
 let uploading = false;
+let deleting = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
 let savedPaths = {host: "", dev: ""};
+let itemsByName = new Map();
+const selectedNames = new Set();
 
 chooseButton.addEventListener("click", () => fileInput.click());
 sendTextButton.addEventListener("click", uploadTextInput);
@@ -34,7 +42,14 @@ savedHostCopyButton.addEventListener("click", () =>
 savedDevCopyButton.addEventListener("click", () =>
   copyPath(savedDevCopyButton, savedPaths.dev, "DEV パス"));
 textInput.addEventListener("input", updateTextSize);
-document.querySelector("#refresh-button").addEventListener("click", loadItems);
+refreshButton.addEventListener("click", loadItems);
+selectAllButton.addEventListener("click", toggleSelectAll);
+deleteSelectedButton.addEventListener("click", () => {
+  deleteItems([...selectedNames], `${selectedNames.size}件の共有ファイルを削除しますか？`);
+});
+deleteAllButton.addEventListener("click", () => {
+  deleteItems([...itemsByName.keys()], `すべての共有ファイル（${itemsByName.size}件）を削除しますか？`);
+});
 document.querySelector("#close-preview").addEventListener("click", closePreview);
 dialog.addEventListener("click", (event) => {
   if (event.target === dialog) closePreview();
@@ -240,20 +255,42 @@ function updateTextSize() {
 async function loadItems() {
   try {
     const items = await request("/api/items");
+    itemsByName = new Map(items.map((item) => [item.name, item]));
+    for (const name of selectedNames) {
+      if (!itemsByName.has(name)) selectedNames.delete(name);
+    }
     gallery.replaceChildren();
     emptyState.textContent = "まだ共有ファイルがありません。";
     emptyState.hidden = items.length !== 0;
     for (const item of items) gallery.append(createCard(item));
+    updateSelectionControls();
   } catch (error) {
+    itemsByName.clear();
+    selectedNames.clear();
     gallery.replaceChildren();
     emptyState.textContent = "共有ファイルの読み込みに失敗しました。";
     emptyState.hidden = false;
+    updateSelectionControls();
     showStatus(error.message, true);
   }
 }
 
 function createCard(item) {
   const card = template.content.firstElementChild.cloneNode(true);
+  card.dataset.name = item.name;
+  const checkbox = card.querySelector(".select-checkbox");
+  checkbox.checked = selectedNames.has(item.name);
+  checkbox.setAttribute("aria-label", `${item.name} を選択`);
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) {
+      selectedNames.add(item.name);
+    } else {
+      selectedNames.delete(item.name);
+    }
+    card.classList.toggle("selected", checkbox.checked);
+    updateSelectionControls();
+  });
+  card.classList.toggle("selected", checkbox.checked);
   const img = card.querySelector("img");
   const textPreview = card.querySelector(".text-preview");
   if (item.kind === "image") {
@@ -300,16 +337,90 @@ function createCard(item) {
         headers: {"X-Agent-Inbox": "1"},
       });
       card.remove();
+      itemsByName.delete(item.name);
+      selectedNames.delete(item.name);
       emptyState.hidden = gallery.children.length !== 0;
       if (savedPaths.host === item.hostPath || savedPaths.dev === item.containerPath) {
         hideSavedItem();
       }
+      updateSelectionControls();
       showStatus("共有ファイルを削除しました");
     } catch (error) {
       showStatus(error.message, true);
     }
   });
   return card;
+}
+
+function toggleSelectAll() {
+  const select = selectedNames.size !== itemsByName.size;
+  selectedNames.clear();
+  if (select) {
+    for (const name of itemsByName.keys()) selectedNames.add(name);
+  }
+  for (const card of gallery.children) {
+    const checked = selectedNames.has(card.dataset.name);
+    card.querySelector(".select-checkbox").checked = checked;
+    card.classList.toggle("selected", checked);
+  }
+  updateSelectionControls();
+}
+
+function updateSelectionControls() {
+  const total = itemsByName.size;
+  const selected = selectedNames.size;
+  selectionStatus.textContent = `${selected}件選択中`;
+  selectionStatus.hidden = total === 0;
+  selectAllButton.textContent = total > 0 && selected === total ? "選択を解除" : "すべて選択";
+  selectAllButton.disabled = deleting || total === 0;
+  deleteSelectedButton.disabled = deleting || selected === 0;
+  deleteAllButton.disabled = deleting || total === 0;
+  refreshButton.disabled = deleting;
+  for (const card of gallery.children) {
+    card.querySelector(".select-checkbox").disabled = deleting;
+    card.querySelector(".delete-button").disabled = deleting;
+  }
+}
+
+async function deleteItems(names, confirmation) {
+  if (deleting || names.length === 0 || !confirm(confirmation)) return;
+  deleting = true;
+  updateSelectionControls();
+  showStatus(`${names.length}件の共有ファイルを削除しています…`);
+
+  const results = await Promise.allSettled(names.map((name) =>
+    request(`/api/items/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: {"X-Agent-Inbox": "1"},
+    })));
+  const failedNames = names.filter((_, index) => results[index].status === "rejected");
+  const deletedNames = names.filter((_, index) => results[index].status === "fulfilled");
+
+  for (const name of deletedNames) {
+    const item = itemsByName.get(name);
+    if (item && (savedPaths.host === item.hostPath || savedPaths.dev === item.containerPath)) {
+      hideSavedItem();
+    }
+    itemsByName.delete(name);
+    selectedNames.delete(name);
+    gallery.querySelector(`[data-name="${CSS.escape(name)}"]`)?.remove();
+  }
+  deleting = false;
+  emptyState.hidden = itemsByName.size !== 0;
+  updateSelectionControls();
+
+  if (failedNames.length) {
+    for (const name of failedNames) selectedNames.add(name);
+    for (const card of gallery.children) {
+      const checked = selectedNames.has(card.dataset.name);
+      card.querySelector(".select-checkbox").checked = checked;
+      card.classList.toggle("selected", checked);
+    }
+    updateSelectionControls();
+    showStatus(`${deletedNames.length}件を削除、${failedNames.length}件の削除に失敗しました`, true);
+  } else {
+    showStatus(`${deletedNames.length}件の共有ファイルを削除しました`);
+  }
 }
 
 function closePreview() {
