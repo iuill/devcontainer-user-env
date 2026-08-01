@@ -569,10 +569,11 @@ func TestListSourceDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{
-		"archive.bin": []byte{0x00, 0x01},
-		"diagram.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
-		"main.go":     []byte("package main\n"),
-		".env":        []byte("SECRET=hidden\n"),
+		"archive.bin":    []byte{0x00, 0x01},
+		"diagram.svg":    []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"main.go":        []byte("package main\n"),
+		"notes.markdown": []byte("# Notes\n"),
+		".env":           []byte("SECRET=hidden\n"),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0o600); err != nil {
@@ -596,7 +597,7 @@ func TestListSourceDirectory(t *testing.T) {
 	if listing.Path != "project" || listing.Parent == nil || *listing.Parent != "" {
 		t.Fatalf("unexpected location: %#v", listing)
 	}
-	if len(listing.Entries) != 4 {
+	if len(listing.Entries) != 5 {
 		t.Fatalf("entries = %#v", listing.Entries)
 	}
 	wants := []struct {
@@ -607,6 +608,7 @@ func TestListSourceDirectory(t *testing.T) {
 		{"archive.bin", "file"},
 		{"diagram.svg", "image"},
 		{"main.go", "text"},
+		{"notes.markdown", "text"},
 	}
 	for index, want := range wants {
 		got := listing.Entries[index]

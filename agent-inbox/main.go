@@ -423,7 +423,7 @@ func sourceFileKind(name string) string {
 	switch extension {
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg":
 		return "image"
-	case ".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch",
+	case ".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch",
 		".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".html", ".htm", ".xml",
 		".sh", ".bash", ".zsh", ".py", ".rb", ".rs", ".java", ".kt", ".swift", ".c", ".h",
 		".cc", ".cpp", ".hpp", ".toml", ".ini", ".conf", ".sql", ".graphql", ".vue", ".svelte",

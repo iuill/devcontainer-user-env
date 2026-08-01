@@ -133,12 +133,23 @@
     <article class="source-card">
       <button class="source-preview" type="button">
         <img alt="" loading="lazy" hidden>
-        <span class="source-file-icon" aria-hidden="true"></span>
+        <span class="source-file-icon" aria-hidden="true">
+          <svg class="source-folder-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M3.75 6.75A1.75 1.75 0 0 1 5.5 5h4l2 2h7A1.75 1.75 0 0 1 20.25 8.75v8.5A1.75 1.75 0 0 1 18.5 19h-13a1.75 1.75 0 0 1-1.75-1.75V6.75Z"/>
+          </svg>
+          <svg class="source-document-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M6.75 3.75h6.5l4 4v12.5h-10.5v-16.5Z"/>
+            <path d="M13.25 3.75v4h4"/>
+          </svg>
+          <span class="source-extension"></span>
+        </span>
       </button>
       <div class="source-card-body">
-        <button class="source-name" type="button"></button>
-        <code class="source-path"></code>
-        <div class="source-metadata"></div>
+        <div class="source-details">
+          <button class="source-name" type="button"></button>
+          <div class="source-metadata"></div>
+          <code class="source-path"></code>
+        </div>
         <div class="actions">
           <button class="source-copy-button primary" type="button">HOST パス</button>
           <a class="source-open-button secondary" target="_blank" rel="noopener">開く</a>
@@ -150,6 +161,16 @@
   <dialog id="preview-dialog">
     <button id="close-preview" class="dialog-close" type="button" aria-label="閉じる">×</button>
     <img id="preview-image" alt="画像の拡大表示">
+    <section id="markdown-view" class="markdown-view" hidden>
+      <header class="markdown-header">
+        <div>
+          <p class="eyebrow">MARKDOWN</p>
+          <h2 id="markdown-title"></h2>
+        </div>
+        <a id="markdown-raw-link" class="secondary" target="_blank" rel="noopener">Rawで表示</a>
+      </header>
+      <article id="markdown-content" class="markdown-content"></article>
+    </section>
   </dialog>
 
   <script src="/app.js" defer></script>

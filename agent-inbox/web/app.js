@@ -7,6 +7,10 @@ const fileInput = document.querySelector("#file-input");
 const template = document.querySelector("#image-card-template");
 const dialog = document.querySelector("#preview-dialog");
 const previewImage = document.querySelector("#preview-image");
+const markdownView = document.querySelector("#markdown-view");
+const markdownTitle = document.querySelector("#markdown-title");
+const markdownRawLink = document.querySelector("#markdown-raw-link");
+const markdownContent = document.querySelector("#markdown-content");
 const textInput = document.querySelector("#text-input");
 const textSize = document.querySelector("#text-size");
 const sendTextButton = document.querySelector("#send-text-button");
@@ -42,6 +46,7 @@ let savedPaths = {host: "", dev: ""};
 let itemsByName = new Map();
 let currentSourcePath = "";
 let sourceInitialized = false;
+let markdownLoadID = 0;
 const selectedNames = new Set();
 const sourceTreeNodes = new Map();
 
@@ -73,8 +78,12 @@ dialog.addEventListener("click", (event) => {
   if (event.target === dialog) closePreview();
 });
 dialog.addEventListener("close", () => {
+  markdownLoadID += 1;
   previewImage.removeAttribute("src");
   previewImage.alt = "画像の拡大表示";
+  previewImage.hidden = false;
+  markdownView.hidden = true;
+  markdownContent.replaceChildren();
 });
 
 fileInput.addEventListener("change", () => {
@@ -293,6 +302,11 @@ function fileExtension(name) {
   return match ? match[1] : "";
 }
 
+function isMarkdownFile(name) {
+  const lowerName = name.toLowerCase();
+  return lowerName.endsWith(".md") || lowerName.endsWith(".markdown") || lowerName === "readme";
+}
+
 function updateTextSize() {
   const size = new Blob([textInput.value]).size;
   textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
@@ -457,6 +471,7 @@ function createSourceCard(item) {
   const preview = card.querySelector(".source-preview");
   const image = card.querySelector("img");
   const icon = card.querySelector(".source-file-icon");
+  const extensionLabel = card.querySelector(".source-extension");
   const openButton = card.querySelector(".source-open-button");
   const copyButton = card.querySelector(".source-copy-button");
   const nameButton = card.querySelector(".source-name");
@@ -476,6 +491,8 @@ function createSourceCard(item) {
       previewImage.src = item.url;
       previewImage.alt = item.name;
       dialog.showModal();
+    } else if (item.kind === "text" && isMarkdownFile(item.name)) {
+      openMarkdown(item);
     } else if (item.kind === "text") {
       window.open(item.url, "_blank", "noopener");
     } else {
@@ -493,7 +510,7 @@ function createSourceCard(item) {
     preview.setAttribute("aria-label", `${item.name} を拡大`);
   } else {
     const extension = fileExtension(item.name).replace(".", "").toUpperCase();
-    icon.textContent = item.kind === "directory" ? "DIR" : extension || "FILE";
+    extensionLabel.textContent = item.kind === "directory" ? "" : extension.slice(0, 4);
     preview.setAttribute("aria-label", `${item.name} へ${item.kind === "directory" ? "移動" : "表示"}`);
   }
 
@@ -507,11 +524,166 @@ function createSourceCard(item) {
       openButton.removeAttribute("target");
     } else if (item.kind === "image") {
       openButton.textContent = "原寸表示";
+    } else if (isMarkdownFile(item.name)) {
+      openButton.textContent = "読む";
+      openButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        openMarkdown(item);
+      });
     } else {
       openButton.textContent = "表示";
     }
   }
   return card;
+}
+
+async function openMarkdown(item) {
+  const loadID = ++markdownLoadID;
+  previewImage.hidden = true;
+  markdownView.hidden = false;
+  markdownTitle.textContent = item.name;
+  markdownRawLink.href = item.url;
+  markdownContent.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "markdown-loading";
+  loading.textContent = "読み込み中…";
+  markdownContent.append(loading);
+  if (!dialog.open) dialog.showModal();
+
+  try {
+    const response = await fetch(item.url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const markdown = await response.text();
+    if (loadID !== markdownLoadID) return;
+    renderMarkdown(markdown, markdownContent, item.url);
+  } catch {
+    if (loadID !== markdownLoadID) return;
+    markdownContent.replaceChildren();
+    const error = document.createElement("p");
+    error.className = "markdown-loading error";
+    error.textContent = "Markdownを読み込めませんでした。";
+    markdownContent.append(error);
+  }
+}
+
+function renderMarkdown(markdown, container, baseURL) {
+  container.replaceChildren();
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^\s*```\s*([^\s`]*)/);
+    if (fence) {
+      const codeLines = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```/.test(lines[index])) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      index += index < lines.length ? 1 : 0;
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      if (fence[1]) code.dataset.language = fence[1];
+      code.textContent = codeLines.join("\n");
+      pre.append(code);
+      container.append(pre);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const element = document.createElement(`h${heading[1].length}`);
+      appendMarkdownInline(element, heading[2].replace(/\s+#+\s*$/, ""), baseURL);
+      container.append(element);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
+      container.append(document.createElement("hr"));
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*>/.test(line)) {
+      const quote = document.createElement("blockquote");
+      while (index < lines.length && /^\s*>/.test(lines[index])) {
+        const paragraph = document.createElement("p");
+        appendMarkdownInline(paragraph, lines[index].replace(/^\s*>\s?/, ""), baseURL);
+        quote.append(paragraph);
+        index += 1;
+      }
+      container.append(quote);
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const list = document.createElement(ordered ? "ol" : "ul");
+      while (index < lines.length) {
+        const itemMatch = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
+        if (!itemMatch || Boolean(itemMatch[2]) !== ordered) break;
+        const item = document.createElement("li");
+        appendMarkdownInline(item, itemMatch[3], baseURL);
+        list.append(item);
+        index += 1;
+      }
+      container.append(list);
+      continue;
+    }
+
+    const paragraphLines = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index].trim() &&
+      !/^(?:#{1,6}\s|\s*```|\s*>|\s*(?:[-+*]|\d+\.)\s+)/.test(lines[index])) {
+      paragraphLines.push(lines[index].trim());
+      index += 1;
+    }
+    const paragraph = document.createElement("p");
+    appendMarkdownInline(paragraph, paragraphLines.join(" "), baseURL);
+    container.append(paragraph);
+  }
+}
+
+function appendMarkdownInline(parent, text, baseURL) {
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\[[^\]]+\]\([^)]+\))/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    parent.append(document.createTextNode(text.slice(cursor, match.index)));
+    const token = match[0];
+    if (token.startsWith("`")) {
+      const code = document.createElement("code");
+      code.textContent = token.slice(1, -1);
+      parent.append(code);
+    } else if (token.startsWith("[")) {
+      const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const link = document.createElement("a");
+      link.textContent = parts[1];
+      try {
+        const url = new URL(parts[2], new URL(baseURL, window.location.href));
+        if (["http:", "https:"].includes(url.protocol)) {
+          link.href = url.href;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+        }
+      } catch {
+        // Keep an unsafe or malformed link as plain labeled text.
+      }
+      parent.append(link);
+    } else {
+      const strong = document.createElement("strong");
+      strong.textContent = token.slice(2, -2);
+      parent.append(strong);
+    }
+    cursor = match.index + token.length;
+  }
+  parent.append(document.createTextNode(text.slice(cursor)));
 }
 
 async function loadItems() {
