@@ -311,10 +311,11 @@ function sourceBadgeCategory(name) {
   const lowerName = name.toLowerCase();
   const extension = fileExtension(lowerName).replace(".", "");
   if (isMarkdownFile(lowerName)) return "markdown";
-  if (["go", "mod", "sum"].includes(extension) || lowerName === "go.mod" || lowerName === "go.sum") return "go";
+  if (["go", "mod", "sum"].includes(extension)) return "go";
   if (["sh", "bash", "zsh"].includes(extension)) return "shell";
   if (["js", "jsx", "ts", "tsx", "css", "scss", "html", "htm", "vue", "svelte"].includes(extension)) return "web";
-  if (["yaml", "yml", "toml", "ini", "conf", "properties", "gradle", "tf", "hcl", "xml"].includes(extension)) return "config";
+  if (["yaml", "yml", "toml", "ini", "conf", "properties", "gradle", "tf", "hcl", "xml", "lock"].includes(extension)) return "config";
+  if (["diff", "patch"].includes(extension)) return "change";
   if (["json", "csv", "sql", "graphql", "proto"].includes(extension)) return "data";
   if (["py", "rb", "rs", "java", "kt", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "fs", "fsx", "ex", "exs", "lua", "php", "pl", "r", "dart"].includes(extension)) return "code";
   return "file";

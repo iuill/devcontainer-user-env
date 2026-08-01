@@ -610,7 +610,8 @@ kbd {
   background: #6d28d9;
 }
 
-.source-extension[data-category="data"] {
+.source-extension[data-category="data"],
+.source-extension[data-category="change"] {
   background: #c2410c;
 }
 
