@@ -66,7 +66,7 @@ type sourceEntry struct {
 	Kind     string `json:"kind"`
 	HostPath string `json:"hostPath"`
 	URL      string `json:"url,omitempty"`
-	Size     int64  `json:"size,omitempty"`
+	Size     int64  `json:"size"`
 	Time     string `json:"time"`
 }
 
@@ -225,12 +225,25 @@ func (a *app) getConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) listSource(w http.ResponseWriter, r *http.Request) {
-	relative, path, info, err := a.resolveSourcePath(r.URL.Query().Get("path"))
+	root, err := os.OpenRoot(a.sourceDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "src内のディレクトリが見つかりません")
+		return
+	}
+	defer root.Close()
+
+	relative, info, err := a.resolveSourcePath(root, r.URL.Query().Get("path"))
 	if err != nil || !info.IsDir() {
 		writeError(w, http.StatusNotFound, "src内のディレクトリが見つかりません")
 		return
 	}
-	entries, err := os.ReadDir(path)
+	directory, err := root.Open(sourceRootName(relative))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "src内のファイル一覧を読み込めませんでした")
+		return
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "src内のファイル一覧を読み込めませんでした")
 		return
@@ -253,6 +266,8 @@ func (a *app) listSource(w http.ResponseWriter, r *http.Request) {
 		kind := sourceFileKind(entry.Name())
 		if entryInfo.IsDir() {
 			kind = "directory"
+		} else if kind == "text" && entryInfo.Size() > a.maxBytes {
+			kind = "file"
 		}
 		item := sourceEntry{
 			Name:     entry.Name(),
@@ -280,20 +295,36 @@ func (a *app) listSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) serveSource(w http.ResponseWriter, r *http.Request) {
-	_, path, info, err := a.resolveSourcePath(r.PathValue("path"))
+	root, err := os.OpenRoot(a.sourceDir)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer root.Close()
+
+	relative, info, err := a.resolveSourcePath(root, r.PathValue("path"))
 	if err != nil || !info.Mode().IsRegular() {
 		http.NotFound(w, r)
 		return
 	}
-	file, err := os.Open(path)
+	file, err := root.Open(relative)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	defer file.Close()
+	info, err = file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
 
-	extension := strings.ToLower(filepath.Ext(path))
-	switch sourceFileKind(path) {
+	extension := strings.ToLower(filepath.Ext(relative))
+	kind := sourceFileKind(relative)
+	if kind == "text" && info.Size() > a.maxBytes {
+		kind = "file"
+	}
+	switch kind {
 	case "image":
 		w.Header().Set("Content-Type", sourceImageContentType(extension))
 		w.Header().Set("Content-Disposition", "inline")
@@ -305,37 +336,44 @@ func (a *app) serveSource(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", "inline")
 	default:
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(relative)}))
 	}
 	w.Header().Set("Cache-Control", "private, no-cache")
-	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+	http.ServeContent(w, r, filepath.Base(relative), info.ModTime(), file)
 }
 
-func (a *app) resolveSourcePath(raw string) (string, string, os.FileInfo, error) {
+func (a *app) resolveSourcePath(root *os.Root, raw string) (string, os.FileInfo, error) {
 	relative, err := cleanSourcePath(raw)
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
-	current := a.sourceDir
-	info, err := os.Lstat(current)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", "", nil, os.ErrNotExist
+	info, err := root.Lstat(".")
+	if err != nil || !info.IsDir() {
+		return "", nil, os.ErrNotExist
 	}
 	if relative == "" {
-		return relative, current, info, nil
+		return relative, info, nil
 	}
+	current := ""
 	parts := strings.Split(filepath.ToSlash(relative), "/")
 	for index, part := range parts {
 		current = filepath.Join(current, part)
-		info, err = os.Lstat(current)
+		info, err = root.Lstat(current)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
-			return "", "", nil, os.ErrNotExist
+			return "", nil, os.ErrNotExist
 		}
 		if index < len(parts)-1 && !info.IsDir() {
-			return "", "", nil, os.ErrNotExist
+			return "", nil, os.ErrNotExist
 		}
 	}
-	return relative, current, info, nil
+	return relative, info, nil
+}
+
+func sourceRootName(relative string) string {
+	if relative == "" {
+		return "."
+	}
+	return relative
 }
 
 func cleanSourcePath(raw string) (string, error) {
@@ -374,6 +412,8 @@ func sourceURL(relative string) string {
 	return "/source/" + strings.Join(parts, "/")
 }
 
+// sourceFileKind is intentionally broader than isTextExtension: src files are
+// only viewed, while inbox text extensions define which uploaded files may be stored.
 func sourceFileKind(name string) string {
 	switch strings.ToLower(filepath.Base(name)) {
 	case "dockerfile", "containerfile", "makefile", "license", "notice", "readme", "go.mod", "go.sum":

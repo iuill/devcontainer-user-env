@@ -654,6 +654,16 @@ func TestSourceFilesAreServedSafely(t *testing.T) {
 	if !strings.Contains(svgResponse.Header().Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("SVG CSP = %q", svgResponse.Header().Get("Content-Security-Policy"))
 	}
+
+	limitedHandler := newApp(inbox, "/inbox", source, 4, "").routes()
+	largeTextResponse := httptest.NewRecorder()
+	limitedHandler.ServeHTTP(largeTextResponse, httptest.NewRequest(http.MethodGet, "/source/project/main.go", nil))
+	if largeTextResponse.Code != http.StatusOK || largeTextResponse.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("large text response: status=%d content-type=%q", largeTextResponse.Code, largeTextResponse.Header().Get("Content-Type"))
+	}
+	if !strings.HasPrefix(largeTextResponse.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("large text disposition = %q", largeTextResponse.Header().Get("Content-Disposition"))
+	}
 }
 
 func TestSourceBrowserRejectsTraversalHiddenFilesAndSymlinks(t *testing.T) {
@@ -704,5 +714,15 @@ func TestSourceFileKind(t *testing.T) {
 		if got := sourceFileKind(name); got != want {
 			t.Errorf("sourceFileKind(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestSourceEntryIncludesZeroSize(t *testing.T) {
+	data, err := json.Marshal(sourceEntry{Name: "empty.txt", Size: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"size":0`) {
+		t.Fatalf("zero size is missing: %s", data)
 	}
 }
