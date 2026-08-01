@@ -569,10 +569,12 @@ func TestListSourceDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{
-		"archive.bin": []byte{0x00, 0x01},
-		"diagram.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
-		"main.go":     []byte("package main\n"),
-		".env":        []byte("SECRET=hidden\n"),
+		"archive.bin":    []byte{0x00, 0x01},
+		"diagram.svg":    []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"main.go":        []byte("package main\n"),
+		"notes.markdown": []byte("# Notes\n"),
+		"README":         []byte("# Project\n"),
+		".env":           []byte("SECRET=hidden\n"),
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0o600); err != nil {
@@ -596,9 +598,6 @@ func TestListSourceDirectory(t *testing.T) {
 	if listing.Path != "project" || listing.Parent == nil || *listing.Parent != "" {
 		t.Fatalf("unexpected location: %#v", listing)
 	}
-	if len(listing.Entries) != 4 {
-		t.Fatalf("entries = %#v", listing.Entries)
-	}
 	wants := []struct {
 		name string
 		kind string
@@ -607,6 +606,11 @@ func TestListSourceDirectory(t *testing.T) {
 		{"archive.bin", "file"},
 		{"diagram.svg", "image"},
 		{"main.go", "text"},
+		{"notes.markdown", "text"},
+		{"README", "text"},
+	}
+	if len(listing.Entries) != len(wants) {
+		t.Fatalf("entries = %#v", listing.Entries)
 	}
 	for index, want := range wants {
 		got := listing.Entries[index]
@@ -619,6 +623,54 @@ func TestListSourceDirectory(t *testing.T) {
 	}
 	if listing.Entries[2].URL != "/source/project/diagram.svg" {
 		t.Fatalf("svg URL = %q", listing.Entries[2].URL)
+	}
+}
+
+func TestRenderSourceMarkdown(t *testing.T) {
+	inbox := t.TempDir()
+	source := t.TempDir()
+	markdown := strings.Join([]string{
+		"# Preview",
+		"",
+		"> quoted",
+		"> across lines",
+		"",
+		"| Name | Value |",
+		"| --- | --- |",
+		"| safe | **yes** |",
+		"",
+		"<script>alert('no')</script>",
+		"[unsafe](javascript:alert('no'))",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(source, "README"), []byte(markdown), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "large.md"), []byte(strings.Repeat("x", int(markdownPreviewBytes+1))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := newApp(inbox, "/inbox", source, defaultMaxBytes, "").routes()
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/source/markdown?path=README", nil))
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("Markdown response: status=%d content-type=%q", response.Code, response.Header().Get("Content-Type"))
+	}
+	rendered := response.Body.String()
+	for _, expected := range []string{"<h1>Preview</h1>", "<blockquote>", "<table>", "<strong>yes</strong>"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("rendered Markdown does not contain %q: %s", expected, rendered)
+		}
+	}
+	for _, unsafe := range []string{"<script>", "javascript:"} {
+		if strings.Contains(rendered, unsafe) {
+			t.Fatalf("rendered Markdown contains unsafe content %q: %s", unsafe, rendered)
+		}
+	}
+
+	largeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(largeResponse, httptest.NewRequest(http.MethodGet, "/api/source/markdown?path=large.md", nil))
+	if largeResponse.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("large Markdown status = %d, want %d", largeResponse.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 

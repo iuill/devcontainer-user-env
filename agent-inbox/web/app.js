@@ -7,6 +7,10 @@ const fileInput = document.querySelector("#file-input");
 const template = document.querySelector("#image-card-template");
 const dialog = document.querySelector("#preview-dialog");
 const previewImage = document.querySelector("#preview-image");
+const markdownView = document.querySelector("#markdown-view");
+const markdownTitle = document.querySelector("#markdown-title");
+const markdownRawLink = document.querySelector("#markdown-raw-link");
+const markdownContent = document.querySelector("#markdown-content");
 const textInput = document.querySelector("#text-input");
 const textSize = document.querySelector("#text-size");
 const sendTextButton = document.querySelector("#send-text-button");
@@ -42,6 +46,7 @@ let savedPaths = {host: "", dev: ""};
 let itemsByName = new Map();
 let currentSourcePath = "";
 let sourceInitialized = false;
+let markdownLoadID = 0;
 const selectedNames = new Set();
 const sourceTreeNodes = new Map();
 
@@ -73,8 +78,12 @@ dialog.addEventListener("click", (event) => {
   if (event.target === dialog) closePreview();
 });
 dialog.addEventListener("close", () => {
+  markdownLoadID += 1;
   previewImage.removeAttribute("src");
   previewImage.alt = "画像の拡大表示";
+  previewImage.hidden = false;
+  markdownView.hidden = true;
+  markdownContent.replaceChildren();
 });
 
 fileInput.addEventListener("change", () => {
@@ -293,6 +302,25 @@ function fileExtension(name) {
   return match ? match[1] : "";
 }
 
+function isMarkdownFile(name) {
+  const lowerName = name.toLowerCase();
+  return lowerName.endsWith(".md") || lowerName.endsWith(".markdown") || lowerName === "readme";
+}
+
+function sourceBadgeCategory(name) {
+  const lowerName = name.toLowerCase();
+  const extension = fileExtension(lowerName).replace(".", "");
+  if (isMarkdownFile(lowerName)) return "markdown";
+  if (["go", "mod", "sum"].includes(extension)) return "go";
+  if (["sh", "bash", "zsh"].includes(extension)) return "shell";
+  if (["js", "jsx", "ts", "tsx", "css", "scss", "html", "htm", "vue", "svelte"].includes(extension)) return "web";
+  if (["yaml", "yml", "toml", "ini", "conf", "properties", "gradle", "tf", "hcl", "xml", "lock"].includes(extension)) return "config";
+  if (["diff", "patch"].includes(extension)) return "change";
+  if (["json", "csv", "sql", "graphql", "proto"].includes(extension)) return "data";
+  if (["py", "rb", "rs", "java", "kt", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "fs", "fsx", "ex", "exs", "lua", "php", "pl", "r", "dart"].includes(extension)) return "code";
+  return "file";
+}
+
 function updateTextSize() {
   const size = new Blob([textInput.value]).size;
   textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
@@ -457,6 +485,7 @@ function createSourceCard(item) {
   const preview = card.querySelector(".source-preview");
   const image = card.querySelector("img");
   const icon = card.querySelector(".source-file-icon");
+  const extensionLabel = card.querySelector(".source-extension");
   const openButton = card.querySelector(".source-open-button");
   const copyButton = card.querySelector(".source-copy-button");
   const nameButton = card.querySelector(".source-name");
@@ -476,6 +505,8 @@ function createSourceCard(item) {
       previewImage.src = item.url;
       previewImage.alt = item.name;
       dialog.showModal();
+    } else if (item.kind === "text" && isMarkdownFile(item.name)) {
+      openMarkdown(item);
     } else if (item.kind === "text") {
       window.open(item.url, "_blank", "noopener");
     } else {
@@ -493,7 +524,8 @@ function createSourceCard(item) {
     preview.setAttribute("aria-label", `${item.name} を拡大`);
   } else {
     const extension = fileExtension(item.name).replace(".", "").toUpperCase();
-    icon.textContent = item.kind === "directory" ? "DIR" : extension || "FILE";
+    extensionLabel.textContent = item.kind === "directory" ? "" : isMarkdownFile(item.name) ? "MD" : extension.slice(0, 4);
+    extensionLabel.dataset.category = sourceBadgeCategory(item.name);
     preview.setAttribute("aria-label", `${item.name} へ${item.kind === "directory" ? "移動" : "表示"}`);
   }
 
@@ -507,11 +539,75 @@ function createSourceCard(item) {
       openButton.removeAttribute("target");
     } else if (item.kind === "image") {
       openButton.textContent = "原寸表示";
+    } else if (isMarkdownFile(item.name)) {
+      openButton.textContent = "読む";
+      openButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        openMarkdown(item);
+      });
     } else {
       openButton.textContent = "表示";
     }
   }
   return card;
+}
+
+async function openMarkdown(item) {
+  const loadID = ++markdownLoadID;
+  previewImage.hidden = true;
+  markdownView.hidden = false;
+  markdownTitle.textContent = item.name;
+  markdownRawLink.href = item.url;
+  markdownContent.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "markdown-loading";
+  loading.textContent = "読み込み中…";
+  markdownContent.append(loading);
+  if (!dialog.open) dialog.showModal();
+
+  try {
+    const response = await fetch(`/api/source/markdown?path=${encodeURIComponent(item.path)}`);
+    if (!response.ok) throw new Error(response.status === 413 ? "too-large" : `HTTP ${response.status}`);
+    const rendered = await response.text();
+    if (loadID !== markdownLoadID) return;
+    renderMarkdownPreview(rendered, markdownContent, item.url);
+  } catch (cause) {
+    if (loadID !== markdownLoadID) return;
+    markdownContent.replaceChildren();
+    const error = document.createElement("p");
+    error.className = "markdown-loading error";
+    error.textContent = cause.message === "too-large"
+      ? "500 KiBを超えるMarkdownはプレビューできません。Rawで表示してください。"
+      : "Markdownを読み込めませんでした。";
+    markdownContent.append(error);
+  }
+}
+
+function renderMarkdownPreview(rendered, container, sourceURL) {
+  container.innerHTML = rendered;
+  const baseURL = new URL(sourceURL, window.location.href);
+  for (const link of container.querySelectorAll("a[href]")) {
+    normalizeMarkdownURL(link, "href", baseURL);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  for (const image of container.querySelectorAll("img[src]")) {
+    normalizeMarkdownURL(image, "src", baseURL);
+    image.loading = "lazy";
+  }
+}
+
+function normalizeMarkdownURL(element, attribute, baseURL) {
+  try {
+    const url = new URL(element.getAttribute(attribute), baseURL);
+    if (["http:", "https:"].includes(url.protocol)) {
+      element.setAttribute(attribute, url.href);
+      return;
+    }
+  } catch {
+    // Remove unsafe or malformed destinations below.
+  }
+  element.removeAttribute(attribute);
 }
 
 async function loadItems() {
