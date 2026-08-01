@@ -167,6 +167,19 @@ Dockerを利用できる状態で、次を実行します。
 systemdユーザーサービスをインストールします。ビルド用コンテナは終了時に
 削除されます。GoのDockerイメージは次回のビルド用にキャッシュされます。
 
+ビルドコンテナでは、次の確認とビルドを順番に実行します。
+
+1. `go test ./agent-inbox`
+2. `go vet ./agent-inbox`
+3. `agent-inbox` 以下のGoファイルが `gofmt` 済みであることを確認
+4. `go build` で `build/agent-inbox` を生成
+
+開発時にテストとビルドだけを実行する場合は、次を使えます。
+
+```bash
+./bin/build-agent-inbox
+```
+
 標準ではダイジェストを固定した `golang:1.26-alpine` を使います。別の
 イメージを使う場合は、ビルド時に指定できます。
 
