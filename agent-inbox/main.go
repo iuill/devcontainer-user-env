@@ -51,12 +51,29 @@ var webFiles embed.FS
 type app struct {
 	dir           string
 	containerPath string
+	sourceDir     string
 	maxBytes      int64
 	allowedUser   string
 	now           func() time.Time
 	random        io.Reader
 	metadataMu    sync.Mutex
 	metadata      map[string]metadataCache
+}
+
+type sourceEntry struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Kind     string `json:"kind"`
+	HostPath string `json:"hostPath"`
+	URL      string `json:"url,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	Time     string `json:"time"`
+}
+
+type sourceListing struct {
+	Path    string        `json:"path"`
+	Parent  *string       `json:"parent"`
+	Entries []sourceEntry `json:"entries"`
 }
 
 type itemInfo struct {
@@ -94,6 +111,11 @@ func main() {
 	}
 	dir := flag.String("dir", defaultDir, "directory used to store shared files")
 	containerPath := flag.String("container-path", defaultContainerPath, "path shown for Dev Container access")
+	defaultSourceDir := os.Getenv("AGENT_INBOX_SOURCE_DIR")
+	if defaultSourceDir == "" {
+		defaultSourceDir = filepath.Join(home, "src")
+	}
+	sourceDir := flag.String("source-dir", defaultSourceDir, "read-only directory exposed by the source browser")
 	maxBytes := flag.Int64("max-bytes", defaultMaxBytes, "maximum image or text size in bytes")
 	allowedUser := flag.String("allowed-user", os.Getenv("AGENT_INBOX_ALLOWED_USER"), "required Tailscale user login; empty disables the check")
 	flag.Parse()
@@ -108,10 +130,19 @@ func main() {
 	if err := os.MkdirAll(absoluteDir, 0o700); err != nil {
 		log.Fatalf("create shared directory: %v", err)
 	}
+	absoluteSourceDir, err := filepath.Abs(*sourceDir)
+	if err != nil {
+		log.Fatalf("resolve source directory: %v", err)
+	}
+	if evaluated, evaluateErr := filepath.EvalSymlinks(absoluteSourceDir); evaluateErr == nil {
+		absoluteSourceDir = evaluated
+	} else if !errors.Is(evaluateErr, os.ErrNotExist) {
+		log.Fatalf("resolve source directory symlinks: %v", evaluateErr)
+	}
 
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           newApp(absoluteDir, *containerPath, *maxBytes, *allowedUser).routes(),
+		Handler:           newApp(absoluteDir, *containerPath, absoluteSourceDir, *maxBytes, *allowedUser).routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
@@ -129,6 +160,7 @@ func main() {
 
 	log.Printf("Agent Inbox listening on http://%s", *listen)
 	log.Printf("Saving shared files in %s", absoluteDir)
+	log.Printf("Browsing source files in %s", absoluteSourceDir)
 	if *allowedUser != "" {
 		log.Printf("Requiring Tailscale user %s", *allowedUser)
 	}
@@ -137,10 +169,11 @@ func main() {
 	}
 }
 
-func newApp(dir, containerPath string, maxBytes int64, allowedUser string) *app {
+func newApp(dir, containerPath, sourceDir string, maxBytes int64, allowedUser string) *app {
 	return &app{
 		dir:           dir,
 		containerPath: strings.TrimRight(containerPath, "/"),
+		sourceDir:     sourceDir,
 		maxBytes:      maxBytes,
 		allowedUser:   allowedUser,
 		now:           time.Now,
@@ -153,10 +186,12 @@ func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/config", a.getConfig)
 	mux.HandleFunc("GET /api/items", a.listItems)
+	mux.HandleFunc("GET /api/source", a.listSource)
 	mux.HandleFunc("POST /api/images", a.uploadImage)
 	mux.HandleFunc("POST /api/texts", a.uploadText)
 	mux.HandleFunc("DELETE /api/items/{name}", a.deleteItem)
 	mux.HandleFunc("GET /files/{name}", a.serveItem)
+	mux.HandleFunc("GET /source/{path...}", a.serveSource)
 
 	staticFiles, err := fs.Sub(webFiles, "web")
 	if err != nil {
@@ -183,7 +218,200 @@ func (a *app) authorize(next http.Handler) http.Handler {
 }
 
 func (a *app) getConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]int64{"maxBytes": a.maxBytes})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"maxBytes":   a.maxBytes,
+		"sourceRoot": a.sourceDir,
+	})
+}
+
+func (a *app) listSource(w http.ResponseWriter, r *http.Request) {
+	relative, path, info, err := a.resolveSourcePath(r.URL.Query().Get("path"))
+	if err != nil || !info.IsDir() {
+		writeError(w, http.StatusNotFound, "src内のディレクトリが見つかりません")
+		return
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "src内のファイル一覧を読み込めませんでした")
+		return
+	}
+
+	result := sourceListing{
+		Path:    filepath.ToSlash(relative),
+		Parent:  sourceParent(relative),
+		Entries: make([]sourceEntry, 0, len(entries)),
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".") || strings.Contains(entry.Name(), `\`) || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		entryInfo, err := entry.Info()
+		if err != nil || (!entryInfo.IsDir() && !entryInfo.Mode().IsRegular()) {
+			continue
+		}
+		entryPath := filepath.Join(relative, entry.Name())
+		kind := sourceFileKind(entry.Name())
+		if entryInfo.IsDir() {
+			kind = "directory"
+		}
+		item := sourceEntry{
+			Name:     entry.Name(),
+			Path:     filepath.ToSlash(entryPath),
+			Kind:     kind,
+			HostPath: filepath.Join(a.sourceDir, entryPath),
+			Time:     entryInfo.ModTime().UTC().Format(time.RFC3339),
+		}
+		if !entryInfo.IsDir() {
+			item.Size = entryInfo.Size()
+			item.URL = sourceURL(entryPath)
+		}
+		result.Entries = append(result.Entries, item)
+	}
+	sort.Slice(result.Entries, func(i, j int) bool {
+		if result.Entries[i].Kind == "directory" && result.Entries[j].Kind != "directory" {
+			return true
+		}
+		if result.Entries[i].Kind != "directory" && result.Entries[j].Kind == "directory" {
+			return false
+		}
+		return strings.ToLower(result.Entries[i].Name) < strings.ToLower(result.Entries[j].Name)
+	})
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (a *app) serveSource(w http.ResponseWriter, r *http.Request) {
+	_, path, info, err := a.resolveSourcePath(r.PathValue("path"))
+	if err != nil || !info.Mode().IsRegular() {
+		http.NotFound(w, r)
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+
+	extension := strings.ToLower(filepath.Ext(path))
+	switch sourceFileKind(path) {
+	case "image":
+		w.Header().Set("Content-Type", sourceImageContentType(extension))
+		w.Header().Set("Content-Disposition", "inline")
+		if extension == ".svg" {
+			w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+		}
+	case "text":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", "inline")
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(path)}))
+	}
+	w.Header().Set("Cache-Control", "private, no-cache")
+	http.ServeContent(w, r, filepath.Base(path), info.ModTime(), file)
+}
+
+func (a *app) resolveSourcePath(raw string) (string, string, os.FileInfo, error) {
+	relative, err := cleanSourcePath(raw)
+	if err != nil {
+		return "", "", nil, err
+	}
+	current := a.sourceDir
+	info, err := os.Lstat(current)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", "", nil, os.ErrNotExist
+	}
+	if relative == "" {
+		return relative, current, info, nil
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, err = os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return "", "", nil, os.ErrNotExist
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return "", "", nil, os.ErrNotExist
+		}
+	}
+	return relative, current, info, nil
+}
+
+func cleanSourcePath(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	if strings.Contains(raw, `\`) || strings.HasPrefix(raw, "/") {
+		return "", errors.New("invalid source path")
+	}
+	parts := strings.Split(raw, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, ".") {
+			return "", errors.New("invalid source path")
+		}
+	}
+	return filepath.Join(parts...), nil
+}
+
+func sourceParent(relative string) *string {
+	if relative == "" {
+		return nil
+	}
+	parent := filepath.Dir(relative)
+	if parent == "." {
+		parent = ""
+	}
+	parent = filepath.ToSlash(parent)
+	return &parent
+}
+
+func sourceURL(relative string) string {
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	for index := range parts {
+		parts[index] = url.PathEscape(parts[index])
+	}
+	return "/source/" + strings.Join(parts, "/")
+}
+
+func sourceFileKind(name string) string {
+	switch strings.ToLower(filepath.Base(name)) {
+	case "dockerfile", "containerfile", "makefile", "license", "notice", "readme", "go.mod", "go.sum":
+		return "text"
+	}
+	extension := strings.ToLower(filepath.Ext(name))
+	switch extension {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg":
+		return "image"
+	case ".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch",
+		".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".html", ".htm", ".xml",
+		".sh", ".bash", ".zsh", ".py", ".rb", ".rs", ".java", ".kt", ".swift", ".c", ".h",
+		".cc", ".cpp", ".hpp", ".toml", ".ini", ".conf", ".sql", ".graphql", ".vue", ".svelte",
+		".mod", ".sum", ".lock", ".proto", ".properties", ".gradle", ".cs", ".fs", ".fsx", ".ex",
+		".exs", ".lua", ".php", ".pl", ".r", ".dart", ".tf", ".hcl":
+		return "text"
+	default:
+		return "file"
+	}
+}
+
+func sourceImageContentType(extension string) string {
+	switch extension {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".avif":
+		return "image/avif"
+	case ".svg":
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func (a *app) serveItem(w http.ResponseWriter, r *http.Request) {

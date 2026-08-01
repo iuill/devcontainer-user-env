@@ -13,12 +13,20 @@
       <div>
         <p class="eyebrow">DEV CONTAINER DROP ZONE</p>
         <h1>Agent Inbox</h1>
-        <p class="lead">画像や長いテキストを貼り付けるだけ。保存したファイルはDev Containerの <code>/inbox</code> に届きます。</p>
+        <p class="lead">ファイルをDev Containerへ渡すInboxと、ホストのsrcを確認する読み取り専用ブラウザ。</p>
       </div>
       <button id="choose-button" class="secondary" type="button">ファイルを選択</button>
       <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,text/plain,.txt,.md,.json,.yaml,.yml,.csv,.log,.diff,.patch" multiple hidden>
     </header>
 
+    <nav class="view-tabs" role="tablist" aria-label="Agent Inboxの機能">
+      <button id="inbox-tab" class="view-tab active" type="button" role="tab" aria-selected="true" aria-controls="inbox-view">Inbox</button>
+      <button id="source-tab" class="view-tab" type="button" role="tab" aria-selected="false" aria-controls="source-view">srcブラウザ</button>
+    </nav>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <section id="inbox-view" class="view-panel" role="tabpanel" aria-labelledby="inbox-tab">
     <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="画像やテキストの貼り付けまたはドロップ領域">
       <div class="paste-icon" aria-hidden="true">⌘</div>
       <h2><kbd>Ctrl</kbd> + <kbd>V</kbd> で貼り付け</h2>
@@ -40,7 +48,6 @@
       </div>
     </section>
 
-    <div id="status" class="status" role="status" aria-live="polite"></div>
     <aside id="saved-item" class="saved-item" role="region" aria-label="保存したパス" hidden>
       <div class="saved-details">
         <span id="saved-message">保存しました</span>
@@ -68,6 +75,33 @@
       <div id="gallery" class="gallery"></div>
       <p id="empty-state" class="empty-state" hidden>まだ共有ファイルがありません。</p>
     </section>
+    </section>
+
+    <section id="source-view" class="view-panel" role="tabpanel" aria-labelledby="source-tab" hidden>
+      <section class="source-browser" aria-labelledby="source-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">READ ONLY</p>
+            <h2 id="source-heading">srcブラウザ</h2>
+          </div>
+          <button id="source-refresh-button" class="text-button" type="button">更新</button>
+        </div>
+        <p class="source-description">
+          <code id="source-root"></code> 配下を読み取り専用で表示します。隠しファイルとシンボリックリンクは表示しません。
+        </p>
+        <div class="source-workspace">
+          <aside class="source-tree-pane" aria-label="フォルダーツリー">
+            <p class="source-pane-title">フォルダー</p>
+            <ul id="source-tree" class="source-tree" role="tree"></ul>
+          </aside>
+          <div class="source-content-pane">
+            <nav id="source-breadcrumbs" class="source-breadcrumbs" aria-label="src内の現在位置"></nav>
+            <div id="source-grid" class="source-grid"></div>
+            <p id="source-empty-state" class="empty-state" hidden>このディレクトリは空です。</p>
+          </div>
+        </div>
+      </section>
+    </section>
   </main>
 
   <template id="image-card-template">
@@ -90,6 +124,24 @@
           <button class="host-copy-button primary" type="button">HOST パス</button>
           <button class="dev-copy-button secondary" type="button">DEV パス</button>
           <button class="delete-button danger" type="button">削除</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="source-card-template">
+    <article class="source-card">
+      <button class="source-preview" type="button">
+        <img alt="" loading="lazy" hidden>
+        <span class="source-file-icon" aria-hidden="true"></span>
+      </button>
+      <div class="source-card-body">
+        <button class="source-name" type="button"></button>
+        <code class="source-path"></code>
+        <div class="source-metadata"></div>
+        <div class="actions">
+          <button class="source-copy-button primary" type="button">HOST パス</button>
+          <a class="source-open-button secondary" target="_blank" rel="noopener">開く</a>
         </div>
       </div>
     </article>

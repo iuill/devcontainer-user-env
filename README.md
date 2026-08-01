@@ -149,7 +149,8 @@ Agent Inboxは、Windows PCやスマートフォンのブラウザから画像�
 貼り付け、ホストの `~/agent-inbox` へ保存する小さなWebアプリです。保存した
 ファイルは、`dc` が起動するすべてのDev Containerから `/inbox` として
 参照できます。チャットへ直接収まらないテキストをファイルとしてAIエージェントへ
-渡す用途にも使えます。
+渡す用途に加え、ホストの `~/src` 配下で生成されたファイルをブラウザから確認する
+用途にも使えます。
 
 WebアプリはGo標準ライブラリと素のHTML、CSS、JavaScriptだけで構成されています。
 GoのDockerイメージを使って単一バイナリにするため、ホストへGoを
@@ -220,6 +221,20 @@ UTF-8テキストファイルは `.txt`、`.md`、`.json`、`.yaml`、`.yml`、`
 スマートフォンではテキスト入力欄を長押しして貼り付けるか、
 「クリップボードから貼り付け」ボタンを使用します。
 
+ページ上部の「srcブラウザ」タブでは、ホストの `~/src` 配下をフォルダツリーと
+ファイル一覧で移動し、ファイルのHOSTパスをコピーできます。PNG、JPEG、GIF、WebP、AVIF、SVGは
+サムネイルと拡大表示に対応します。ソースコードや設定ファイルはブラウザで実行せず、
+プレーンテキストとして表示します。それ以外のファイルはダウンロードできます。
+
+srcブラウザは読み取り専用です。パストラバーサルを拒否し、隠しファイルと
+シンボリックリンクは一覧表示も配信もしません。標準の閲覧ルートを変更する場合は、
+systemdサービスのdrop-inで `AGENT_INBOX_SOURCE_DIR` を設定します。
+
+```ini
+[Service]
+Environment=AGENT_INBOX_SOURCE_DIR=/mnt/data/src
+```
+
 ホスト上のCLIからUTF-8テキストファイルを保存することもできます。
 
 ```bash
@@ -241,6 +256,10 @@ Environment=AGENT_INBOX_ALLOWED_USER=you@example.com
 
 Agent Inboxにはインターネット公開用の認証機能がありません。
 **`tailscale funnel` は使用しないでください。**
+
+srcブラウザを有効にすると、隠しファイル以外のソースコードをTailnet経由で
+閲覧できます。`~/src` に機微情報を含む場合は、`AGENT_INBOX_ALLOWED_USER` で
+アクセスするTailscaleユーザーを必ず限定してください。
 
 ユーザー制限はTailscale Serveが付与するIdentity Headerを検証します。
 Identity Headerが付かないtagged nodeからのアクセスは拒否されます。

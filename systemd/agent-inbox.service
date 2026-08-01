@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=simple
 Environment=AGENT_INBOX_DIR=%h/agent-inbox
+Environment=AGENT_INBOX_SOURCE_DIR=%h/src
 ExecStart=%h/.local/share/devcontainer-user-env/bin/agent-inbox
 Restart=on-failure
 RestartSec=2s
