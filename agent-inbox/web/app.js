@@ -22,6 +22,17 @@ const deleteSelectedButton = document.querySelector("#delete-selected-button");
 const deleteAllButton = document.querySelector("#delete-all-button");
 const selectionStatus = document.querySelector("#selection-status");
 const refreshButton = document.querySelector("#refresh-button");
+const sourceRootElement = document.querySelector("#source-root");
+const sourceBreadcrumbs = document.querySelector("#source-breadcrumbs");
+const sourceGrid = document.querySelector("#source-grid");
+const sourceEmptyState = document.querySelector("#source-empty-state");
+const sourceRefreshButton = document.querySelector("#source-refresh-button");
+const sourceTemplate = document.querySelector("#source-card-template");
+const sourceTree = document.querySelector("#source-tree");
+const inboxTab = document.querySelector("#inbox-tab");
+const sourceTab = document.querySelector("#source-tab");
+const inboxView = document.querySelector("#inbox-view");
+const sourceView = document.querySelector("#source-view");
 const textExtensions = new Set([".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch"]);
 let uploading = false;
 let deleting = false;
@@ -29,9 +40,15 @@ let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
 let savedPaths = {host: "", dev: ""};
 let itemsByName = new Map();
+let currentSourcePath = "";
+let sourceInitialized = false;
 const selectedNames = new Set();
+const sourceTreeNodes = new Map();
 
 chooseButton.addEventListener("click", () => fileInput.click());
+inboxTab.addEventListener("click", () => selectView("inbox"));
+sourceTab.addEventListener("click", () => selectView("source"));
+window.addEventListener("hashchange", () => activateView(viewFromHash()));
 sendTextButton.addEventListener("click", uploadTextInput);
 clipboardButton.addEventListener("click", pasteClipboardText);
 document.querySelector("#saved-close-button").addEventListener("click", () => {
@@ -43,6 +60,7 @@ savedDevCopyButton.addEventListener("click", () =>
   copyPath(savedDevCopyButton, savedPaths.dev, "DEV パス"));
 textInput.addEventListener("input", updateTextSize);
 refreshButton.addEventListener("click", loadItems);
+sourceRefreshButton.addEventListener("click", () => loadSource(currentSourcePath));
 selectAllButton.addEventListener("click", toggleSelectAll);
 deleteSelectedButton.addEventListener("click", () => {
   deleteItems([...selectedNames], `${selectedNames.size}件の共有ファイルを削除しますか？`);
@@ -56,6 +74,7 @@ dialog.addEventListener("click", (event) => {
 });
 dialog.addEventListener("close", () => {
   previewImage.removeAttribute("src");
+  previewImage.alt = "画像の拡大表示";
 });
 
 fileInput.addEventListener("change", () => {
@@ -64,7 +83,7 @@ fileInput.addEventListener("change", () => {
 });
 
 document.addEventListener("paste", (event) => {
-  if (uploading || !event.clipboardData) return;
+  if (inboxView.hidden || uploading || !event.clipboardData) return;
   const files = [...event.clipboardData.items]
     .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
     .map((item) => item.getAsFile())
@@ -105,6 +124,35 @@ dropZone.addEventListener("drop", (event) => {
   dropZone.classList.remove("dragging");
   uploadFiles([...event.dataTransfer.files]);
 });
+
+function viewFromHash() {
+  return location.hash === "#src" ? "source" : "inbox";
+}
+
+function selectView(view) {
+  const hash = view === "source" ? "#src" : "#inbox";
+  if (location.hash === hash) {
+    activateView(view);
+  } else {
+    location.hash = hash;
+  }
+}
+
+async function activateView(view) {
+  const sourceActive = view === "source";
+  inboxView.hidden = sourceActive;
+  sourceView.hidden = !sourceActive;
+  chooseButton.hidden = sourceActive;
+  inboxTab.classList.toggle("active", !sourceActive);
+  sourceTab.classList.toggle("active", sourceActive);
+  inboxTab.setAttribute("aria-selected", String(!sourceActive));
+  sourceTab.setAttribute("aria-selected", String(sourceActive));
+  if (sourceActive && !sourceInitialized) {
+    sourceInitialized = true;
+    initializeSourceTree();
+    await loadSource("");
+  }
+}
 
 async function request(url, options = {}) {
   const response = await fetch(url, options);
@@ -250,6 +298,220 @@ function updateTextSize() {
   textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
   textSize.classList.toggle("over-limit", size > maxBytes);
   sendTextButton.disabled = uploading || size > maxBytes;
+}
+
+async function loadSource(path = "") {
+  sourceRefreshButton.disabled = true;
+  try {
+    const listing = await request(`/api/source?path=${encodeURIComponent(path)}`);
+    currentSourcePath = listing.path;
+    populateSourceTreeNode(listing);
+    selectSourceTreeNode(listing.path);
+    renderSourceBreadcrumbs(listing.path);
+    sourceGrid.replaceChildren();
+    sourceEmptyState.textContent = "このディレクトリは空です。";
+    sourceEmptyState.hidden = listing.entries.length !== 0;
+    for (const item of listing.entries) sourceGrid.append(createSourceCard(item));
+  } catch (error) {
+    sourceGrid.replaceChildren();
+    sourceEmptyState.textContent = "src内のファイル一覧を読み込めませんでした。";
+    sourceEmptyState.hidden = false;
+    showStatus(error.message, true);
+  } finally {
+    sourceRefreshButton.disabled = false;
+  }
+}
+
+function initializeSourceTree() {
+  sourceTree.replaceChildren();
+  sourceTreeNodes.clear();
+  sourceTree.append(createSourceTreeNode("", "src", 1));
+}
+
+function createSourceTreeNode(path, name, level) {
+  const item = document.createElement("li");
+  item.className = "source-tree-node";
+  item.dataset.path = path;
+  item.setAttribute("role", "treeitem");
+  item.setAttribute("aria-level", String(level));
+  item.setAttribute("aria-expanded", "false");
+
+  const row = document.createElement("div");
+  row.className = "source-tree-row";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "source-tree-toggle";
+  toggle.textContent = "›";
+  toggle.setAttribute("aria-label", `${name} を展開`);
+  const nameButton = document.createElement("button");
+  nameButton.type = "button";
+  nameButton.className = "source-tree-name";
+  nameButton.textContent = name;
+  nameButton.addEventListener("click", () => loadSource(path));
+  toggle.addEventListener("click", () => toggleSourceTreeNode(path));
+  row.append(toggle, nameButton);
+
+  const children = document.createElement("ul");
+  children.className = "source-tree-children";
+  children.setAttribute("role", "group");
+  children.hidden = true;
+  item.append(row, children);
+  sourceTreeNodes.set(path, {item, row, toggle, children, level, loaded: false});
+  return item;
+}
+
+async function toggleSourceTreeNode(path) {
+  const node = sourceTreeNodes.get(path);
+  if (!node || node.toggle.disabled) return;
+  if (!node.loaded) {
+    node.toggle.disabled = true;
+    try {
+      const listing = await request(`/api/source?path=${encodeURIComponent(path)}`);
+      populateSourceTreeNode(listing);
+    } catch (error) {
+      node.toggle.disabled = false;
+      showStatus(error.message, true);
+    }
+    return;
+  }
+  setSourceTreeExpanded(node, node.children.hidden);
+}
+
+function populateSourceTreeNode(listing) {
+  const node = sourceTreeNodes.get(listing.path);
+  if (!node) return;
+  const directories = listing.entries.filter((entry) => entry.kind === "directory");
+  const wantedPaths = new Set(directories.map((entry) => entry.path));
+  for (const child of [...node.children.children]) {
+    if (!wantedPaths.has(child.dataset.path)) removeSourceTreeBranch(child.dataset.path);
+  }
+
+  const fragment = document.createDocumentFragment();
+  for (const directory of directories) {
+    let childNode = sourceTreeNodes.get(directory.path);
+    if (!childNode) {
+      createSourceTreeNode(directory.path, directory.name, node.level + 1);
+      childNode = sourceTreeNodes.get(directory.path);
+    }
+    fragment.append(childNode.item);
+  }
+  node.children.replaceChildren(fragment);
+  node.loaded = true;
+  node.toggle.disabled = directories.length === 0;
+  setSourceTreeExpanded(node, directories.length !== 0);
+}
+
+function removeSourceTreeBranch(path) {
+  for (const candidate of [...sourceTreeNodes.keys()]) {
+    if (candidate === path || candidate.startsWith(`${path}/`)) {
+      sourceTreeNodes.delete(candidate);
+    }
+  }
+}
+
+function setSourceTreeExpanded(node, expanded) {
+  const canExpand = !node.toggle.disabled;
+  node.children.hidden = !expanded || !canExpand;
+  node.item.setAttribute("aria-expanded", String(expanded && canExpand));
+  node.toggle.textContent = expanded && canExpand ? "⌄" : "›";
+}
+
+function selectSourceTreeNode(path) {
+  for (const node of sourceTreeNodes.values()) {
+    const selected = node.item.dataset.path === path;
+    node.row.classList.toggle("selected", selected);
+    node.item.setAttribute("aria-selected", String(selected));
+  }
+}
+
+function renderSourceBreadcrumbs(path) {
+  sourceBreadcrumbs.replaceChildren();
+  const rootButton = document.createElement("button");
+  rootButton.type = "button";
+  rootButton.className = "source-crumb";
+  rootButton.textContent = "src";
+  rootButton.disabled = path === "";
+  rootButton.addEventListener("click", () => loadSource(""));
+  sourceBreadcrumbs.append(rootButton);
+
+  let accumulated = "";
+  for (const part of path.split("/").filter(Boolean)) {
+    const separator = document.createElement("span");
+    separator.textContent = "/";
+    separator.setAttribute("aria-hidden", "true");
+    sourceBreadcrumbs.append(separator);
+    accumulated = accumulated ? `${accumulated}/${part}` : part;
+    const target = accumulated;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "source-crumb";
+    button.textContent = part;
+    button.disabled = target === path;
+    button.addEventListener("click", () => loadSource(target));
+    sourceBreadcrumbs.append(button);
+  }
+}
+
+function createSourceCard(item) {
+  const card = sourceTemplate.content.firstElementChild.cloneNode(true);
+  const preview = card.querySelector(".source-preview");
+  const image = card.querySelector("img");
+  const icon = card.querySelector(".source-file-icon");
+  const openButton = card.querySelector(".source-open-button");
+  const copyButton = card.querySelector(".source-copy-button");
+  const nameButton = card.querySelector(".source-name");
+
+  nameButton.textContent = item.name;
+  card.querySelector(".source-path").textContent = item.hostPath;
+  const kindLabels = {directory: "DIRECTORY", image: "IMAGE", text: "TEXT", file: "FILE"};
+  card.querySelector(".source-metadata").textContent = item.kind === "directory"
+    ? `DIRECTORY · ${new Date(item.time).toLocaleString()}`
+    : `${kindLabels[item.kind] || "FILE"} · ${formatBytes(item.size)} · ${new Date(item.time).toLocaleString()}`;
+  copyButton.addEventListener("click", () => copyPath(copyButton, item.hostPath, "HOST パス"));
+
+  const activate = () => {
+    if (item.kind === "directory") {
+      loadSource(item.path);
+    } else if (item.kind === "image") {
+      previewImage.src = item.url;
+      previewImage.alt = item.name;
+      dialog.showModal();
+    } else if (item.kind === "text") {
+      window.open(item.url, "_blank", "noopener");
+    } else {
+      window.location.assign(item.url);
+    }
+  };
+  nameButton.addEventListener("click", activate);
+  preview.addEventListener("click", activate);
+
+  if (item.kind === "image") {
+    image.hidden = false;
+    image.src = item.url;
+    image.alt = item.name;
+    icon.hidden = true;
+    preview.setAttribute("aria-label", `${item.name} を拡大`);
+  } else {
+    const extension = fileExtension(item.name).replace(".", "").toUpperCase();
+    icon.textContent = item.kind === "directory" ? "DIR" : extension || "FILE";
+    preview.setAttribute("aria-label", `${item.name} へ${item.kind === "directory" ? "移動" : "表示"}`);
+  }
+
+  if (item.kind === "directory") {
+    card.classList.add("directory");
+    openButton.hidden = true;
+  } else {
+    openButton.href = item.url;
+    if (item.kind === "file") {
+      openButton.textContent = "ダウンロード";
+      openButton.removeAttribute("target");
+    } else if (item.kind === "image") {
+      openButton.textContent = "原寸表示";
+    } else {
+      openButton.textContent = "表示";
+    }
+  }
+  return card;
 }
 
 async function loadItems() {
@@ -500,11 +762,13 @@ async function initialize() {
   try {
     const config = await request("/api/config");
     maxBytes = config.maxBytes;
+    sourceRootElement.textContent = config.sourceRoot;
   } catch (error) {
     showStatus(error.message, true);
   }
   updateTextSize();
   await loadItems();
+  await activateView(viewFromHash());
 }
 
 initialize();

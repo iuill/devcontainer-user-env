@@ -73,7 +73,7 @@ func textUploadRequest(text string) *http.Request {
 }
 
 func testApp(dir string, maxBytes int64) *app {
-	return newApp(dir, "/inbox", maxBytes, "")
+	return newApp(dir, "/inbox", dir, maxBytes, "")
 }
 
 func TestUploadListAndDeleteImage(t *testing.T) {
@@ -236,7 +236,8 @@ func TestMutationProtection(t *testing.T) {
 }
 
 func TestAllowedTailscaleUser(t *testing.T) {
-	app := newApp(t.TempDir(), "/inbox", defaultMaxBytes, "owner@example.com")
+	dir := t.TempDir()
+	app := newApp(dir, "/inbox", dir, defaultMaxBytes, "owner@example.com")
 	handler := app.routes()
 	denied := httptest.NewRecorder()
 	handler.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/api/items", nil))
@@ -529,7 +530,8 @@ func TestCreateFileRetriesCollision(t *testing.T) {
 }
 
 func TestConfigAndHTMLAuthorizationError(t *testing.T) {
-	app := newApp(t.TempDir(), "/inbox", 1234, "owner@example.com")
+	dir := t.TempDir()
+	app := newApp(dir, "/inbox", dir, 1234, "owner@example.com")
 	denied := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	request.Header.Set("Accept", "text/html")
@@ -556,5 +558,171 @@ func TestTextSnippetDropsIncompleteTrailingRune(t *testing.T) {
 	snippet := textSnippet(path)
 	if strings.ContainsRune(snippet, '�') {
 		t.Fatalf("snippet contains a replacement rune: %q", snippet)
+	}
+}
+
+func TestListSourceDirectory(t *testing.T) {
+	inbox := t.TempDir()
+	source := t.TempDir()
+	project := filepath.Join(source, "project")
+	if err := os.MkdirAll(filepath.Join(project, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"archive.bin": []byte{0x00, 0x01},
+		"diagram.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"main.go":     []byte("package main\n"),
+		".env":        []byte("SECRET=hidden\n"),
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(project, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(project, "main.go"), filepath.Join(project, "linked.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	app := newApp(inbox, "/inbox", source, defaultMaxBytes, "")
+	response := httptest.NewRecorder()
+	app.routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/source?path=project", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var listing sourceListing
+	if err := json.NewDecoder(response.Body).Decode(&listing); err != nil {
+		t.Fatal(err)
+	}
+	if listing.Path != "project" || listing.Parent == nil || *listing.Parent != "" {
+		t.Fatalf("unexpected location: %#v", listing)
+	}
+	if len(listing.Entries) != 4 {
+		t.Fatalf("entries = %#v", listing.Entries)
+	}
+	wants := []struct {
+		name string
+		kind string
+	}{
+		{"assets", "directory"},
+		{"archive.bin", "file"},
+		{"diagram.svg", "image"},
+		{"main.go", "text"},
+	}
+	for index, want := range wants {
+		got := listing.Entries[index]
+		if got.Name != want.name || got.Kind != want.kind {
+			t.Fatalf("entry %d = %#v, want %s/%s", index, got, want.name, want.kind)
+		}
+		if got.HostPath != filepath.Join(project, want.name) {
+			t.Fatalf("host path = %q", got.HostPath)
+		}
+	}
+	if listing.Entries[2].URL != "/source/project/diagram.svg" {
+		t.Fatalf("svg URL = %q", listing.Entries[2].URL)
+	}
+}
+
+func TestSourceFilesAreServedSafely(t *testing.T) {
+	inbox := t.TempDir()
+	source := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, "project"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "project", "main.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	maliciousSVG := `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`
+	if err := os.WriteFile(filepath.Join(source, "project", "preview.svg"), []byte(maliciousSVG), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler := newApp(inbox, "/inbox", source, defaultMaxBytes, "").routes()
+
+	textResponse := httptest.NewRecorder()
+	handler.ServeHTTP(textResponse, httptest.NewRequest(http.MethodGet, "/source/project/main.go", nil))
+	if textResponse.Code != http.StatusOK || textResponse.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
+		t.Fatalf("text response: status=%d content-type=%q", textResponse.Code, textResponse.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(textResponse.Header().Get("Cache-Control"), "no-cache") {
+		t.Fatal("source response must not use immutable caching")
+	}
+
+	svgResponse := httptest.NewRecorder()
+	handler.ServeHTTP(svgResponse, httptest.NewRequest(http.MethodGet, "/source/project/preview.svg", nil))
+	if svgResponse.Code != http.StatusOK || svgResponse.Header().Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("svg response: status=%d content-type=%q", svgResponse.Code, svgResponse.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(svgResponse.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("SVG CSP = %q", svgResponse.Header().Get("Content-Security-Policy"))
+	}
+
+	limitedHandler := newApp(inbox, "/inbox", source, 4, "").routes()
+	largeTextResponse := httptest.NewRecorder()
+	limitedHandler.ServeHTTP(largeTextResponse, httptest.NewRequest(http.MethodGet, "/source/project/main.go", nil))
+	if largeTextResponse.Code != http.StatusOK || largeTextResponse.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("large text response: status=%d content-type=%q", largeTextResponse.Code, largeTextResponse.Header().Get("Content-Type"))
+	}
+	if !strings.HasPrefix(largeTextResponse.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("large text disposition = %q", largeTextResponse.Header().Get("Content-Disposition"))
+	}
+}
+
+func TestSourceBrowserRejectsTraversalHiddenFilesAndSymlinks(t *testing.T) {
+	inbox := t.TempDir()
+	source := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(source, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(source, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	handler := newApp(inbox, "/inbox", source, defaultMaxBytes, "").routes()
+
+	for _, target := range []string{
+		"/api/source?path=../secret",
+		"/api/source?path=.git",
+		"/api/source?path=linked",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404", target, response.Code)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/source/linked/secret.txt", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("symlink file status = %d, want 404", response.Code)
+	}
+}
+
+func TestSourceFileKind(t *testing.T) {
+	tests := map[string]string{
+		"preview.svg": "image",
+		"photo.webp":  "image",
+		"main.go":     "text",
+		"go.mod":      "text",
+		"Dockerfile":  "text",
+		"pnpm-lock":   "file",
+		"archive.zip": "file",
+	}
+	for name, want := range tests {
+		if got := sourceFileKind(name); got != want {
+			t.Errorf("sourceFileKind(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestSourceEntryIncludesZeroSize(t *testing.T) {
+	data, err := json.Marshal(sourceEntry{Name: "empty.txt", Size: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"size":0`) {
+		t.Fatalf("zero size is missing: %s", data)
 	}
 }
