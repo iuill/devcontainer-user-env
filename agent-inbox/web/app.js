@@ -510,7 +510,7 @@ function createSourceCard(item) {
     preview.setAttribute("aria-label", `${item.name} を拡大`);
   } else {
     const extension = fileExtension(item.name).replace(".", "").toUpperCase();
-    extensionLabel.textContent = item.kind === "directory" ? "" : extension.slice(0, 4);
+    extensionLabel.textContent = item.kind === "directory" ? "" : isMarkdownFile(item.name) ? "MD" : extension.slice(0, 4);
     preview.setAttribute("aria-label", `${item.name} へ${item.kind === "directory" ? "移動" : "表示"}`);
   }
 
@@ -551,139 +551,48 @@ async function openMarkdown(item) {
   if (!dialog.open) dialog.showModal();
 
   try {
-    const response = await fetch(item.url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const markdown = await response.text();
+    const response = await fetch(`/api/source/markdown?path=${encodeURIComponent(item.path)}`);
+    if (!response.ok) throw new Error(response.status === 413 ? "too-large" : `HTTP ${response.status}`);
+    const rendered = await response.text();
     if (loadID !== markdownLoadID) return;
-    renderMarkdown(markdown, markdownContent, item.url);
-  } catch {
+    renderMarkdownPreview(rendered, markdownContent, item.url);
+  } catch (cause) {
     if (loadID !== markdownLoadID) return;
     markdownContent.replaceChildren();
     const error = document.createElement("p");
     error.className = "markdown-loading error";
-    error.textContent = "Markdownを読み込めませんでした。";
+    error.textContent = cause.message === "too-large"
+      ? "500 KiBを超えるMarkdownはプレビューできません。Rawで表示してください。"
+      : "Markdownを読み込めませんでした。";
     markdownContent.append(error);
   }
 }
 
-function renderMarkdown(markdown, container, baseURL) {
-  container.replaceChildren();
-  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index];
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    const fence = line.match(/^\s*```\s*([^\s`]*)/);
-    if (fence) {
-      const codeLines = [];
-      index += 1;
-      while (index < lines.length && !/^\s*```/.test(lines[index])) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-      index += index < lines.length ? 1 : 0;
-      const pre = document.createElement("pre");
-      const code = document.createElement("code");
-      if (fence[1]) code.dataset.language = fence[1];
-      code.textContent = codeLines.join("\n");
-      pre.append(code);
-      container.append(pre);
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
-      const element = document.createElement(`h${heading[1].length}`);
-      appendMarkdownInline(element, heading[2].replace(/\s+#+\s*$/, ""), baseURL);
-      container.append(element);
-      index += 1;
-      continue;
-    }
-
-    if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
-      container.append(document.createElement("hr"));
-      index += 1;
-      continue;
-    }
-
-    if (/^\s*>/.test(line)) {
-      const quote = document.createElement("blockquote");
-      while (index < lines.length && /^\s*>/.test(lines[index])) {
-        const paragraph = document.createElement("p");
-        appendMarkdownInline(paragraph, lines[index].replace(/^\s*>\s?/, ""), baseURL);
-        quote.append(paragraph);
-        index += 1;
-      }
-      container.append(quote);
-      continue;
-    }
-
-    const listMatch = line.match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
-    if (listMatch) {
-      const ordered = Boolean(listMatch[2]);
-      const list = document.createElement(ordered ? "ol" : "ul");
-      while (index < lines.length) {
-        const itemMatch = lines[index].match(/^\s*(?:([-+*])|(\d+)\.)\s+(.+)$/);
-        if (!itemMatch || Boolean(itemMatch[2]) !== ordered) break;
-        const item = document.createElement("li");
-        appendMarkdownInline(item, itemMatch[3], baseURL);
-        list.append(item);
-        index += 1;
-      }
-      container.append(list);
-      continue;
-    }
-
-    const paragraphLines = [line.trim()];
-    index += 1;
-    while (index < lines.length && lines[index].trim() &&
-      !/^(?:#{1,6}\s|\s*```|\s*>|\s*(?:[-+*]|\d+\.)\s+)/.test(lines[index])) {
-      paragraphLines.push(lines[index].trim());
-      index += 1;
-    }
-    const paragraph = document.createElement("p");
-    appendMarkdownInline(paragraph, paragraphLines.join(" "), baseURL);
-    container.append(paragraph);
+function renderMarkdownPreview(rendered, container, sourceURL) {
+  container.innerHTML = rendered;
+  const baseURL = new URL(sourceURL, window.location.href);
+  for (const link of container.querySelectorAll("a[href]")) {
+    normalizeMarkdownURL(link, "href", baseURL);
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  for (const image of container.querySelectorAll("img[src]")) {
+    normalizeMarkdownURL(image, "src", baseURL);
+    image.loading = "lazy";
   }
 }
 
-function appendMarkdownInline(parent, text, baseURL) {
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\[[^\]]+\]\([^)]+\))/g;
-  let cursor = 0;
-  for (const match of text.matchAll(pattern)) {
-    parent.append(document.createTextNode(text.slice(cursor, match.index)));
-    const token = match[0];
-    if (token.startsWith("`")) {
-      const code = document.createElement("code");
-      code.textContent = token.slice(1, -1);
-      parent.append(code);
-    } else if (token.startsWith("[")) {
-      const parts = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      const link = document.createElement("a");
-      link.textContent = parts[1];
-      try {
-        const url = new URL(parts[2], new URL(baseURL, window.location.href));
-        if (["http:", "https:"].includes(url.protocol)) {
-          link.href = url.href;
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-        }
-      } catch {
-        // Keep an unsafe or malformed link as plain labeled text.
-      }
-      parent.append(link);
-    } else {
-      const strong = document.createElement("strong");
-      strong.textContent = token.slice(2, -2);
-      parent.append(strong);
+function normalizeMarkdownURL(element, attribute, baseURL) {
+  try {
+    const url = new URL(element.getAttribute(attribute), baseURL);
+    if (["http:", "https:"].includes(url.protocol)) {
+      element.setAttribute(attribute, url.href);
+      return;
     }
-    cursor = match.index + token.length;
+  } catch {
+    // Remove unsafe or malformed destinations below.
   }
-  parent.append(document.createTextNode(text.slice(cursor)));
+  element.removeAttribute(attribute);
 }
 
 async function loadItems() {

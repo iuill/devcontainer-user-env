@@ -934,6 +934,45 @@ dialog img {
   color: #58c9f3;
 }
 
+.markdown-content img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.markdown-content table {
+  display: block;
+  width: 100%;
+  margin: 0 0 1.15em;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: 8px 12px;
+  border: 1px solid #2b3a45;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: #182129;
+  color: #eef7fa;
+}
+
+.markdown-content del {
+  color: #71808c;
+}
+
+.markdown-content .task-list-item {
+  list-style: none;
+}
+
+.markdown-content .task-list-item input {
+  margin: 0 0.5em 0 -1.4em;
+}
+
 .markdown-content code {
   padding: 0.15em 0.35em;
   border-radius: 5px;

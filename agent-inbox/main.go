@@ -29,6 +29,9 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 const (
@@ -43,6 +46,7 @@ const (
 	shutdownTimeout      = 30 * time.Second
 	uploadTimeout        = 10 * time.Minute
 	textSnippetRunes     = 180
+	markdownPreviewBytes = int64(500 * 1024)
 )
 
 //go:embed web/*
@@ -187,6 +191,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/config", a.getConfig)
 	mux.HandleFunc("GET /api/items", a.listItems)
 	mux.HandleFunc("GET /api/source", a.listSource)
+	mux.HandleFunc("GET /api/source/markdown", a.renderSourceMarkdown)
 	mux.HandleFunc("POST /api/images", a.uploadImage)
 	mux.HandleFunc("POST /api/texts", a.uploadText)
 	mux.HandleFunc("DELETE /api/items/{name}", a.deleteItem)
@@ -199,6 +204,54 @@ func (a *app) routes() http.Handler {
 	}
 	mux.Handle("GET /", http.FileServer(http.FS(staticFiles)))
 	return securityHeaders(a.authorize(mux))
+}
+
+func (a *app) renderSourceMarkdown(w http.ResponseWriter, r *http.Request) {
+	root, err := os.OpenRoot(a.sourceDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Markdownファイルが見つかりません")
+		return
+	}
+	defer root.Close()
+
+	relative, info, err := a.resolveSourcePath(root, r.URL.Query().Get("path"))
+	if err != nil || !info.Mode().IsRegular() || !isSourceMarkdown(relative) {
+		writeError(w, http.StatusNotFound, "Markdownファイルが見つかりません")
+		return
+	}
+	if info.Size() > markdownPreviewBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "500 KiBを超えるMarkdownはプレビューできません")
+		return
+	}
+
+	file, err := root.Open(relative)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Markdownファイルが見つかりません")
+		return
+	}
+	defer file.Close()
+	markdown, err := readLimited(file, markdownPreviewBytes)
+	if err != nil {
+		if errors.Is(err, errTooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "500 KiBを超えるMarkdownはプレビューできません")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Markdownを読み込めませんでした")
+		return
+	}
+
+	var rendered bytes.Buffer
+	converter := goldmark.New(goldmark.WithExtensions(extension.GFM))
+	if err := converter.Convert(markdown, &rendered); err != nil {
+		writeError(w, http.StatusInternalServerError, "Markdownを表示できませんでした")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.WriteHeader(http.StatusOK)
+	if _, err := rendered.WriteTo(w); err != nil {
+		log.Printf("write Markdown preview: %v", err)
+	}
 }
 
 func (a *app) authorize(next http.Handler) http.Handler {
@@ -410,6 +463,11 @@ func sourceURL(relative string) string {
 		parts[index] = url.PathEscape(parts[index])
 	}
 	return "/source/" + strings.Join(parts, "/")
+}
+
+func isSourceMarkdown(name string) bool {
+	baseName := strings.ToLower(filepath.Base(name))
+	return baseName == "readme" || strings.HasSuffix(baseName, ".md") || strings.HasSuffix(baseName, ".markdown")
 }
 
 // sourceFileKind is intentionally broader than isTextExtension: src files are
