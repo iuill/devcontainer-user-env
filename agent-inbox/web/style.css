@@ -539,18 +539,15 @@ kbd {
 .source-file-icon {
   position: relative;
   display: block;
-  width: 28px;
-  height: 28px;
-  color: #58c9f3;
+  width: 30px;
+  height: 30px;
+  color: #70cef1;
 }
 
 .source-file-icon svg {
   width: 100%;
   height: 100%;
-  stroke: currentColor;
-  stroke-width: 1.65;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.32));
 }
 
 .source-folder-icon {
@@ -566,21 +563,59 @@ kbd {
 }
 
 .source-card.directory .source-file-icon {
-  color: #78dca9;
+  width: 32px;
+  height: 32px;
+  color: #76d7a3;
+}
+
+.source-card.directory .source-preview {
+  border-color: #2c5140;
+  background: #0d1814;
 }
 
 .source-extension {
   position: absolute;
-  right: -5px;
-  bottom: -4px;
-  max-width: 27px;
-  padding: 2px 3px;
+  right: -7px;
+  bottom: -5px;
+  min-width: 20px;
+  max-width: 30px;
+  padding: 3px 4px;
   overflow: hidden;
-  border-radius: 3px;
-  background: #204154;
-  color: #b8e9fb;
-  font: 800 0.48rem/1 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  border-radius: 4px;
+  background: #475569;
+  box-shadow: 0 0 0 2px #0b1015, 0 2px 4px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font: 900 0.48rem/1 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  text-align: center;
   text-overflow: clip;
+}
+
+.source-extension[data-category="markdown"] {
+  background: #2563eb;
+}
+
+.source-extension[data-category="go"] {
+  background: #0e7490;
+}
+
+.source-extension[data-category="shell"] {
+  background: #15803d;
+}
+
+.source-extension[data-category="web"] {
+  background: #a16207;
+}
+
+.source-extension[data-category="config"] {
+  background: #6d28d9;
+}
+
+.source-extension[data-category="data"] {
+  background: #c2410c;
+}
+
+.source-extension[data-category="code"] {
+  background: #be123c;
 }
 
 .source-extension:empty {

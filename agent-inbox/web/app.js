@@ -307,6 +307,19 @@ function isMarkdownFile(name) {
   return lowerName.endsWith(".md") || lowerName.endsWith(".markdown") || lowerName === "readme";
 }
 
+function sourceBadgeCategory(name) {
+  const lowerName = name.toLowerCase();
+  const extension = fileExtension(lowerName).replace(".", "");
+  if (isMarkdownFile(lowerName)) return "markdown";
+  if (["go", "mod", "sum"].includes(extension) || lowerName === "go.mod" || lowerName === "go.sum") return "go";
+  if (["sh", "bash", "zsh"].includes(extension)) return "shell";
+  if (["js", "jsx", "ts", "tsx", "css", "scss", "html", "htm", "vue", "svelte"].includes(extension)) return "web";
+  if (["yaml", "yml", "toml", "ini", "conf", "properties", "gradle", "tf", "hcl", "xml"].includes(extension)) return "config";
+  if (["json", "csv", "sql", "graphql", "proto"].includes(extension)) return "data";
+  if (["py", "rb", "rs", "java", "kt", "swift", "c", "h", "cc", "cpp", "hpp", "cs", "fs", "fsx", "ex", "exs", "lua", "php", "pl", "r", "dart"].includes(extension)) return "code";
+  return "file";
+}
+
 function updateTextSize() {
   const size = new Blob([textInput.value]).size;
   textSize.textContent = `${formatBytes(size)} / ${formatBytes(maxBytes)}`;
@@ -511,6 +524,7 @@ function createSourceCard(item) {
   } else {
     const extension = fileExtension(item.name).replace(".", "").toUpperCase();
     extensionLabel.textContent = item.kind === "directory" ? "" : isMarkdownFile(item.name) ? "MD" : extension.slice(0, 4);
+    extensionLabel.dataset.category = sourceBadgeCategory(item.name);
     preview.setAttribute("aria-label", `${item.name} へ${item.kind === "directory" ? "移動" : "表示"}`);
   }
 
