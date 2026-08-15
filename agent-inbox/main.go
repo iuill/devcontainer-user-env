@@ -38,6 +38,7 @@ const (
 	defaultListen        = "127.0.0.1:3939"
 	defaultContainerPath = "/inbox"
 	defaultMaxBytes      = int64(20 << 20)
+	defaultMaxFileBytes  = int64(500 << 20)
 	multipartMemory      = int64(1 << 20)
 	maxDimension         = 20000
 	maxPixels            = 100_000_000
@@ -57,6 +58,7 @@ type app struct {
 	containerPath string
 	sourceDir     string
 	maxBytes      int64
+	maxFileBytes  int64
 	allowedUser   string
 	now           func() time.Time
 	random        io.Reader
@@ -120,12 +122,16 @@ func main() {
 		defaultSourceDir = filepath.Join(home, "src")
 	}
 	sourceDir := flag.String("source-dir", defaultSourceDir, "read-only directory exposed by the source browser")
-	maxBytes := flag.Int64("max-bytes", defaultMaxBytes, "maximum uploaded file size in bytes")
+	maxBytes := flag.Int64("max-bytes", defaultMaxBytes, "maximum image or text size in bytes")
+	maxFileBytes := flag.Int64("max-file-bytes", defaultMaxFileBytes, "maximum generic file size in bytes")
 	allowedUser := flag.String("allowed-user", os.Getenv("AGENT_INBOX_ALLOWED_USER"), "required Tailscale user login; empty disables the check")
 	flag.Parse()
 
 	if *maxBytes <= 0 {
 		log.Fatal("-max-bytes must be greater than zero")
+	}
+	if *maxFileBytes <= 0 {
+		log.Fatal("-max-file-bytes must be greater than zero")
 	}
 	absoluteDir, err := filepath.Abs(*dir)
 	if err != nil {
@@ -144,9 +150,11 @@ func main() {
 		log.Fatalf("resolve source directory symlinks: %v", evaluateErr)
 	}
 
+	application := newApp(absoluteDir, *containerPath, absoluteSourceDir, *maxBytes, *allowedUser)
+	application.maxFileBytes = *maxFileBytes
 	server := &http.Server{
 		Addr:              *listen,
-		Handler:           newApp(absoluteDir, *containerPath, absoluteSourceDir, *maxBytes, *allowedUser).routes(),
+		Handler:           application.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
@@ -179,6 +187,7 @@ func newApp(dir, containerPath, sourceDir string, maxBytes int64, allowedUser st
 		containerPath: strings.TrimRight(containerPath, "/"),
 		sourceDir:     sourceDir,
 		maxBytes:      maxBytes,
+		maxFileBytes:  defaultMaxFileBytes,
 		allowedUser:   allowedUser,
 		now:           time.Now,
 		random:        rand.Reader,
@@ -273,8 +282,9 @@ func (a *app) authorize(next http.Handler) http.Handler {
 
 func (a *app) getConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"maxBytes":   a.maxBytes,
-		"sourceRoot": a.sourceDir,
+		"maxBytes":     a.maxBytes,
+		"maxFileBytes": a.maxFileBytes,
+		"sourceRoot":   a.sourceDir,
 	})
 }
 
@@ -690,35 +700,24 @@ func (a *app) uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	setUploadReadDeadline(w)
 
-	r.Body = http.MaxBytesReader(w, r.Body, a.maxBytes+(1<<20))
-	if err := r.ParseMultipartForm(multipartMemory); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "ファイルがサイズ上限を超えています")
-			return
-		}
+	r.Body = http.MaxBytesReader(w, r.Body, a.maxFileBytes+(1<<20))
+	multipartReader, err := r.MultipartReader()
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "アップロード形式が不正です")
 		return
 	}
-	defer r.MultipartForm.RemoveAll()
-	file, header, err := r.FormFile("file")
-	if err != nil {
+	part, err := multipartReader.NextPart()
+	if err != nil || part.FormName() != "file" || part.FileName() == "" {
 		writeError(w, http.StatusBadRequest, "ファイルが指定されていません")
 		return
 	}
-	defer file.Close()
+	defer part.Close()
 
-	data, err := readLimited(file, a.maxBytes)
+	item, err := a.saveReader(uploadedFileExtension(part.FileName()), part, a.maxFileBytes)
 	if errors.Is(err, errTooLarge) {
 		writeError(w, http.StatusRequestEntityTooLarge, "ファイルがサイズ上限を超えています")
 		return
 	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "ファイルを読み込めませんでした")
-		return
-	}
-
-	item, err := a.save(uploadedFileExtension(header.Filename), data)
 	if err != nil {
 		log.Printf("save file: %v", err)
 		writeError(w, http.StatusInternalServerError, "ファイルを保存できませんでした")
@@ -729,6 +728,18 @@ func (a *app) uploadFile(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) save(extension string, data []byte) (itemInfo, error) {
 	name, path, err := a.createFile(extension, data)
+	if err != nil {
+		return itemInfo{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return itemInfo{}, err
+	}
+	return a.info(name, info), nil
+}
+
+func (a *app) saveReader(extension string, reader io.Reader, maxBytes int64) (itemInfo, error) {
+	name, path, err := a.createFileFromReader(extension, reader, maxBytes)
 	if err != nil {
 		return itemInfo{}, err
 	}
@@ -928,6 +939,10 @@ func textSnippet(path string) string {
 }
 
 func (a *app) createFile(extension string, data []byte) (string, string, error) {
+	return a.createFileFromReader(extension, bytes.NewReader(data), int64(len(data)))
+}
+
+func (a *app) createFileFromReader(extension string, reader io.Reader, maxBytes int64) (string, string, error) {
 	for range 10 {
 		randomBytes := make([]byte, 4)
 		if _, err := io.ReadFull(a.random, randomBytes); err != nil {
@@ -947,14 +962,18 @@ func (a *app) createFile(extension string, data []byte) (string, string, error) 
 		if err != nil {
 			return "", "", err
 		}
-		if _, err := file.Write(data); err != nil {
-			file.Close()
-			os.Remove(path)
-			return "", "", err
+		written, writeErr := io.Copy(file, io.LimitReader(reader, maxBytes+1))
+		if writeErr == nil && written > maxBytes {
+			writeErr = errTooLarge
 		}
-		if err := file.Close(); err != nil {
+		closeErr := file.Close()
+		if writeErr != nil {
 			os.Remove(path)
-			return "", "", err
+			return "", "", writeErr
+		}
+		if closeErr != nil {
+			os.Remove(path)
+			return "", "", closeErr
 		}
 		return name, path, nil
 	}

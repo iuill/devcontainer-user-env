@@ -43,6 +43,7 @@ let uploading = false;
 let deleting = false;
 let dragDepth = 0;
 let maxBytes = 20 * 1024 * 1024;
+let maxFileBytes = 500 * 1024 * 1024;
 let savedPaths = {host: "", dev: ""};
 let itemsByName = new Map();
 let currentSourcePath = "";
@@ -200,9 +201,9 @@ async function uploadEntries(entries) {
     showStatus("ファイルまたはテキストが見つかりませんでした", true);
     return 0;
   }
-  const oversized = entries.find((entry) => entrySize(entry) > maxBytes);
+  const oversized = entries.find((entry) => entrySize(entry) > entryLimit(entry));
   if (oversized) {
-    showStatus(`1ファイルの上限は${formatBytes(maxBytes)}です`, true);
+    showStatus(`このファイルの上限は${formatBytes(entryLimit(oversized))}です`, true);
     return 0;
   }
 
@@ -305,6 +306,10 @@ function entrySize(entry) {
   if (entry.kind === "text") return new Blob([entry.value]).size;
   if (entry.kind === "image" || entry.kind === "textFile" || entry.kind === "file") return entry.value.size;
   return 0;
+}
+
+function entryLimit(entry) {
+  return entry.kind === "file" ? maxFileBytes : maxBytes;
 }
 
 function fileExtension(name) {
@@ -869,6 +874,7 @@ async function initialize() {
   try {
     const config = await request("/api/config");
     maxBytes = config.maxBytes;
+    maxFileBytes = config.maxFileBytes ?? maxFileBytes;
     sourceRootElement.textContent = config.sourceRoot;
   } catch (error) {
     showStatus(error.message, true);

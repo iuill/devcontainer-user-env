@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -324,6 +326,7 @@ func TestAllowedTailscaleUser(t *testing.T) {
 
 func TestUploadSizeLimitReturns413(t *testing.T) {
 	app := testApp(t.TempDir(), 16)
+	app.maxFileBytes = 16
 	imageResponse := httptest.NewRecorder()
 	app.routes().ServeHTTP(imageResponse, imageUploadRequest(t, testImage(t, "png"), true))
 	if imageResponse.Code != http.StatusRequestEntityTooLarge {
@@ -340,6 +343,16 @@ func TestUploadSizeLimitReturns413(t *testing.T) {
 	app.routes().ServeHTTP(fileResponse, fileUploadRequest(t, "video.mp4", bytes.Repeat([]byte{1}, 17)))
 	if fileResponse.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("file status = %d, body = %s", fileResponse.Code, fileResponse.Body.String())
+	}
+}
+
+func TestGenericFileHasSeparateLargerLimit(t *testing.T) {
+	app := testApp(t.TempDir(), 16)
+	app.random = bytes.NewReader([]byte{1, 2, 3, 4})
+	response := httptest.NewRecorder()
+	app.routes().ServeHTTP(response, fileUploadRequest(t, "model.glb", bytes.Repeat([]byte{1}, 17)))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -612,6 +625,22 @@ func TestCreateFileRetriesCollision(t *testing.T) {
 	}
 }
 
+func TestCreateFileFromReaderRemovesOversizedPartialFile(t *testing.T) {
+	dir := t.TempDir()
+	app := testApp(dir, defaultMaxBytes)
+	app.random = bytes.NewReader([]byte{1, 2, 3, 4})
+	if _, _, err := app.createFileFromReader(".glb", bytes.NewReader([]byte("12345")), 4); !errors.Is(err, errTooLarge) {
+		t.Fatalf("error = %v, want errTooLarge", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("partial files remain: %#v", entries)
+	}
+}
+
 func TestConfigAndHTMLAuthorizationError(t *testing.T) {
 	dir := t.TempDir()
 	app := newApp(dir, "/inbox", dir, 1234, "owner@example.com")
@@ -627,7 +656,8 @@ func TestConfigAndHTMLAuthorizationError(t *testing.T) {
 	request = httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	request.Header.Set("Tailscale-User-Login", "owner@example.com")
 	app.routes().ServeHTTP(config, request)
-	if config.Code != http.StatusOK || !strings.Contains(config.Body.String(), "1234") {
+	if config.Code != http.StatusOK || !strings.Contains(config.Body.String(), "1234") ||
+		!strings.Contains(config.Body.String(), fmt.Sprint(defaultMaxFileBytes)) {
 		t.Fatalf("unexpected config response: status=%d body=%s", config.Code, config.Body.String())
 	}
 }
