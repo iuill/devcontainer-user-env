@@ -38,6 +38,7 @@ const sourceTab = document.querySelector("#source-tab");
 const inboxView = document.querySelector("#inbox-view");
 const sourceView = document.querySelector("#source-view");
 const textExtensions = new Set([".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".log", ".diff", ".patch"]);
+const previewImageTypes = new Set(["image/png", "image/jpeg", "image/gif"]);
 let uploading = false;
 let deleting = false;
 let dragDepth = 0;
@@ -94,7 +95,7 @@ fileInput.addEventListener("change", () => {
 document.addEventListener("paste", (event) => {
   if (inboxView.hidden || uploading || !event.clipboardData) return;
   const files = [...event.clipboardData.items]
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
     .filter(Boolean);
   if (event.target === textInput) {
@@ -180,12 +181,12 @@ async function request(url, options = {}) {
 
 async function uploadFiles(files) {
   const entries = files.map((file) => {
-    if (file.type.startsWith("image/")) return {kind: "image", value: file};
+    if (previewImageTypes.has(file.type)) return {kind: "image", value: file};
     const extension = fileExtension(file.name);
     if (textExtensions.has(extension) || (file.type === "text/plain" && !extension)) {
       return {kind: "textFile", value: file, extension: extension || ".txt"};
     }
-    return {kind: "unsupported", value: file.name};
+    return {kind: "file", value: file};
   });
   uploadEntries(entries);
 }
@@ -196,7 +197,7 @@ async function uploadEntries(entries) {
     return 0;
   }
   if (!entries.length) {
-    showStatus("画像またはテキストが見つかりませんでした", true);
+    showStatus("ファイルまたはテキストが見つかりませんでした", true);
     return 0;
   }
   const oversized = entries.find((entry) => entrySize(entry) > maxBytes);
@@ -264,7 +265,16 @@ function uploadEntry(entry) {
       body: entry.value,
     });
   }
-  return Promise.reject(new Error(`${entry.value} は対応していないファイル形式です`));
+  if (entry.kind === "file") {
+    const form = new FormData();
+    form.append("file", entry.value, entry.value.name || "file.bin");
+    return request("/api/files", {
+      method: "POST",
+      headers: {"X-Agent-Inbox": "1"},
+      body: form,
+    });
+  }
+  return Promise.reject(new Error("ファイルを保存できませんでした"));
 }
 
 async function uploadTextInput() {
@@ -293,7 +303,7 @@ async function pasteClipboardText() {
 
 function entrySize(entry) {
   if (entry.kind === "text") return new Blob([entry.value]).size;
-  if (entry.kind === "image" || entry.kind === "textFile") return entry.value.size;
+  if (entry.kind === "image" || entry.kind === "textFile" || entry.kind === "file") return entry.value.size;
   return 0;
 }
 
@@ -665,18 +675,19 @@ function createCard(item) {
   } else {
     img.remove();
     textPreview.hidden = false;
-    textPreview.textContent = item.snippet || "TXT";
+    textPreview.textContent = item.kind === "text" ? (item.snippet || "TXT") : (fileExtension(item.name).slice(1).toUpperCase() || "FILE");
     textPreview.id = `snippet-${item.name}`;
-    card.querySelector(".preview").setAttribute("aria-label", `${item.name} を開く`);
+    card.querySelector(".preview").setAttribute("aria-label", `${item.name} を${item.kind === "file" ? "ダウンロード" : "開く"}`);
     card.querySelector(".preview").setAttribute("aria-describedby", textPreview.id);
   }
   card.querySelector(".host-path").textContent = `HOST ${item.hostPath}`;
   card.querySelector(".dev-path").textContent = `DEV  ${item.containerPath}`;
+  const kindLabels = {image: "IMAGE", text: "TEXT", file: "FILE"};
   card.querySelector(".metadata").textContent =
-    `${item.kind === "text" ? "TEXT" : "IMAGE"} · ${formatBytes(item.size)} · ${new Date(item.time).toLocaleString()}`;
+    `${kindLabels[item.kind] || "FILE"} · ${formatBytes(item.size)} · ${new Date(item.time).toLocaleString()}`;
 
   card.querySelector(".preview").addEventListener("click", () => {
-    if (item.kind === "text") {
+    if (item.kind !== "image") {
       window.open(item.url, "_blank", "noopener");
       return;
     }

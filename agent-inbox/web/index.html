@@ -16,7 +16,7 @@
         <p class="lead">ファイルをDev Containerへ渡すInboxと、ホストのsrcを確認する読み取り専用ブラウザ。</p>
       </div>
       <button id="choose-button" class="secondary" type="button">ファイルを選択</button>
-      <input id="file-input" type="file" accept="image/png,image/jpeg,image/gif,text/plain,.txt,.md,.json,.yaml,.yml,.csv,.log,.diff,.patch" multiple hidden>
+      <input id="file-input" type="file" multiple hidden>
     </header>
 
     <nav class="view-tabs" role="tablist" aria-label="Agent Inboxの機能">
@@ -27,10 +27,10 @@
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
     <section id="inbox-view" class="view-panel" role="tabpanel" aria-labelledby="inbox-tab">
-    <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="画像やテキストの貼り付けまたはドロップ領域">
+    <section id="drop-zone" class="drop-zone" tabindex="0" aria-label="テキストの貼り付けまたはファイルのドロップ領域">
       <div class="paste-icon" aria-hidden="true">⌘</div>
       <h2><kbd>Ctrl</kbd> + <kbd>V</kbd> で貼り付け</h2>
-      <p>または画像・テキストファイルをここへドロップ</p>
+      <p>または画像・動画・3Dモデルなどのファイルをここへドロップ</p>
     </section>
 
     <section class="text-composer" aria-labelledby="text-heading">

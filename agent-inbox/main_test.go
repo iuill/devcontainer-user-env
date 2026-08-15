@@ -65,6 +65,26 @@ func imageUploadRequest(t *testing.T, data []byte, withHeader bool) *http.Reques
 	return request
 }
 
+func fileUploadRequest(t *testing.T, name string, data []byte) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/files", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set(mutationHeader, "1")
+	return request
+}
+
 func textUploadRequest(text string) *http.Request {
 	request := httptest.NewRequest(http.MethodPost, "/api/texts", strings.NewReader(text))
 	request.Header.Set("Content-Type", "text/plain; charset=utf-8")
@@ -149,6 +169,55 @@ func TestUploadText(t *testing.T) {
 	}
 	if string(data) != "長いテキスト\nsecond line" {
 		t.Fatalf("unexpected content: %q", data)
+	}
+}
+
+func TestUploadArbitraryFile(t *testing.T) {
+	dir := t.TempDir()
+	app := testApp(dir, defaultMaxBytes)
+	app.now = func() time.Time { return time.Unix(0, 0) }
+	app.random = bytes.NewReader([]byte{1, 2, 3, 4})
+	payload := []byte{0x67, 0x6c, 0x54, 0x46, 0, 1, 2, 3}
+	response := httptest.NewRecorder()
+	app.routes().ServeHTTP(response, fileUploadRequest(t, "scene.GLB", payload))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var created itemInfo
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Name != "19700101-000000.000-01020304.glb" || created.Kind != "file" {
+		t.Fatalf("unexpected item: %#v", created)
+	}
+	stored, err := os.ReadFile(filepath.Join(dir, created.Name))
+	if err != nil || !bytes.Equal(stored, payload) {
+		t.Fatalf("stored content = %v, %v", stored, err)
+	}
+
+	download := httptest.NewRecorder()
+	app.routes().ServeHTTP(download, httptest.NewRequest(http.MethodGet, created.URL, nil))
+	if download.Code != http.StatusOK || download.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("download status = %d, content-type = %q", download.Code, download.Header().Get("Content-Type"))
+	}
+	if !strings.HasPrefix(download.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("Content-Disposition = %q", download.Header().Get("Content-Disposition"))
+	}
+}
+
+func TestUploadedFileExtension(t *testing.T) {
+	tests := map[string]string{
+		"video.MP4":         ".mp4",
+		"model.3mf":         ".3mf",
+		"archive.tar.gz":    ".gz",
+		"no-extension":      ".bin",
+		`folder\mesh.blend`: ".blend",
+		"unsafe.file.name!": ".bin",
+	}
+	for name, want := range tests {
+		if got := uploadedFileExtension(name); got != want {
+			t.Errorf("uploadedFileExtension(%q) = %q, want %q", name, got, want)
+		}
 	}
 }
 
@@ -266,6 +335,12 @@ func TestUploadSizeLimitReturns413(t *testing.T) {
 	if textResponse.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("text status = %d, body = %s", textResponse.Code, textResponse.Body.String())
 	}
+
+	fileResponse := httptest.NewRecorder()
+	app.routes().ServeHTTP(fileResponse, fileUploadRequest(t, "video.mp4", bytes.Repeat([]byte{1}, 17)))
+	if fileResponse.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("file status = %d, body = %s", fileResponse.Code, fileResponse.Body.String())
+	}
 }
 
 func TestMultipartBodyLimitReturns413(t *testing.T) {
@@ -360,9 +435,9 @@ func TestValidStoredName(t *testing.T) {
 		"..":          false,
 		"a/b.png":     false,
 		`a\b.png`:     false,
-		"image.svg":   false,
-		"page.html":   false,
-		"noext":       false,
+		"image.svg":   true,
+		"page.html":   true,
+		"noext":       true,
 	}
 	for name, want := range tests {
 		if got := validStoredName(name); got != want {
@@ -381,7 +456,8 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 	if err := os.WriteFile(newPath, testImage(t, "png"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "ignore.svg"), []byte("<svg/>"), 0o600); err != nil {
+	svgPath := filepath.Join(dir, "diagram.svg")
+	if err := os.WriteFile(svgPath, []byte("<svg/>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(dir, "folder.png"), 0o700); err != nil {
@@ -398,6 +474,10 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
 		t.Fatal(err)
 	}
+	svgTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(svgPath, svgTime, svgTime); err != nil {
+		t.Fatal(err)
+	}
 
 	app := testApp(dir, defaultMaxBytes)
 	response := httptest.NewRecorder()
@@ -406,11 +486,14 @@ func TestListFiltersAndSortsItems(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&items); err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 || items[0].Name != "old.txt" || items[1].Name != "new.png" {
+	if len(items) != 3 || items[0].Name != "old.txt" || items[1].Name != "new.png" || items[2].Name != "diagram.svg" {
 		t.Fatalf("unexpected sorted items: %#v", items)
 	}
 	if items[0].Snippet != "old" {
 		t.Fatalf("unexpected text snippet: %q", items[0].Snippet)
+	}
+	if items[2].Kind != "file" || items[2].Snippet != "" {
+		t.Fatalf("unexpected generic file: %#v", items[2])
 	}
 	if len(app.metadata) != 2 {
 		t.Fatalf("metadata cache contains %d entries, want 2", len(app.metadata))

@@ -120,7 +120,7 @@ func main() {
 		defaultSourceDir = filepath.Join(home, "src")
 	}
 	sourceDir := flag.String("source-dir", defaultSourceDir, "read-only directory exposed by the source browser")
-	maxBytes := flag.Int64("max-bytes", defaultMaxBytes, "maximum image or text size in bytes")
+	maxBytes := flag.Int64("max-bytes", defaultMaxBytes, "maximum uploaded file size in bytes")
 	allowedUser := flag.String("allowed-user", os.Getenv("AGENT_INBOX_ALLOWED_USER"), "required Tailscale user login; empty disables the check")
 	flag.Parse()
 
@@ -194,6 +194,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/source/markdown", a.renderSourceMarkdown)
 	mux.HandleFunc("POST /api/images", a.uploadImage)
 	mux.HandleFunc("POST /api/texts", a.uploadText)
+	mux.HandleFunc("POST /api/files", a.uploadFile)
 	mux.HandleFunc("DELETE /api/items/{name}", a.deleteItem)
 	mux.HandleFunc("GET /files/{name}", a.serveItem)
 	mux.HandleFunc("GET /source/{path...}", a.serveSource)
@@ -530,8 +531,12 @@ func (a *app) serveItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	if isTextExtension(filepath.Ext(name)) {
+	kind := storedFileKind(name)
+	if kind == "text" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	} else if kind == "file" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	}
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	http.ServeContent(w, r, name, info.ModTime(), file)
@@ -568,7 +573,7 @@ func (a *app) listItems(w http.ResponseWriter, _ *http.Request) {
 		item := a.info(entry.Name(), info)
 		if item.Kind == "image" {
 			item.Width, item.Height = a.cachedImageDimensions(entry.Name(), info)
-		} else {
+		} else if item.Kind == "text" {
 			item.Snippet = a.cachedTextSnippet(entry.Name(), info)
 		}
 		items = append(items, item)
@@ -673,6 +678,50 @@ func (a *app) uploadText(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("save text: %v", err)
 		writeError(w, http.StatusInternalServerError, "テキストを保存できませんでした")
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+func (a *app) uploadFile(w http.ResponseWriter, r *http.Request) {
+	if !validMutation(r) {
+		writeError(w, http.StatusForbidden, "不正なアップロード要求です")
+		return
+	}
+	setUploadReadDeadline(w)
+
+	r.Body = http.MaxBytesReader(w, r.Body, a.maxBytes+(1<<20))
+	if err := r.ParseMultipartForm(multipartMemory); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "ファイルがサイズ上限を超えています")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "アップロード形式が不正です")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "ファイルが指定されていません")
+		return
+	}
+	defer file.Close()
+
+	data, err := readLimited(file, a.maxBytes)
+	if errors.Is(err, errTooLarge) {
+		writeError(w, http.StatusRequestEntityTooLarge, "ファイルがサイズ上限を超えています")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "ファイルを読み込めませんでした")
+		return
+	}
+
+	item, err := a.save(uploadedFileExtension(header.Filename), data)
+	if err != nil {
+		log.Printf("save file: %v", err)
+		writeError(w, http.StatusInternalServerError, "ファイルを保存できませんでした")
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -916,12 +965,20 @@ func validStoredName(name string) bool {
 	if name == "" || name != filepath.Base(name) || strings.ContainsAny(name, `/\`) {
 		return false
 	}
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".png", ".jpg", ".gif":
-		return true
-	default:
-		return isTextExtension(filepath.Ext(name))
+	return name != "." && name != ".."
+}
+
+func uploadedFileExtension(name string) string {
+	extension := strings.ToLower(filepath.Ext(filepath.Base(strings.ReplaceAll(name, `\`, "/"))))
+	if len(extension) < 2 || len(extension) > 32 {
+		return ".bin"
 	}
+	for _, character := range extension[1:] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' && character != '-' {
+			return ".bin"
+		}
+	}
+	return extension
 }
 
 func normalizeTextExtension(value string) (string, bool) {
@@ -942,19 +999,27 @@ func isTextExtension(extension string) bool {
 }
 
 func (a *app) info(name string, info os.FileInfo) itemInfo {
-	kind := "image"
-	if isTextExtension(filepath.Ext(name)) {
-		kind = "text"
-	}
 	return itemInfo{
 		Name:          name,
-		Kind:          kind,
+		Kind:          storedFileKind(name),
 		HostPath:      filepath.Join(a.dir, name),
 		ContainerPath: a.containerPath + "/" + name,
 		URL:           "/files/" + name,
 		Size:          info.Size(),
 		Time:          info.ModTime().UTC().Format(time.RFC3339),
 		modTime:       info.ModTime(),
+	}
+}
+
+func storedFileKind(name string) string {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif":
+		return "image"
+	default:
+		if isTextExtension(filepath.Ext(name)) {
+			return "text"
+		}
+		return "file"
 	}
 }
 
