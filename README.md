@@ -181,11 +181,11 @@ systemdユーザーサービスをインストールします。ビルド用コ�
 ./bin/build-agent-inbox
 ```
 
-標準ではダイジェストを固定した `golang:1.26-alpine` を使います。別の
+標準ではダイジェストを固定した `golang:1.27-alpine` を使います。別の
 イメージを使う場合は、ビルド時に指定できます。
 
 ```bash
-AGENT_INBOX_GO_IMAGE=golang:1.26-alpine ./install-agent-inbox.sh
+AGENT_INBOX_GO_IMAGE=golang:1.27-alpine ./install-agent-inbox.sh
 ```
 
 ### 起動とTailnetへの公開
